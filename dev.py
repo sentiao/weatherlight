@@ -1,3 +1,4 @@
+import os
 import json
 import f
 import source
@@ -41,9 +42,14 @@ def apply_indicators(dataset):
 with open('../settings.json', 'r') as fh: settings = json.load(fh)
 api = source.BitvavoRestClient(settings['key'], settings['secret'])
 
-data = source.get_candles(api, 'BTC-EUR', '1h')
-data = source.get_candles(api, 'BTC-EUR', '1h', 1, data)
+balance = api.balance('DOGE')
+
+data = source.load('BTC-EUR', '1h')
+if len(data) == 0:
+    data = api.get_candles('BTC-EUR', '1h', 40)
+else:
+    data = api.get_candles('BTC-EUR', '1h', 5, data)
+source.save(data, 'BTC-EUR', '1h')
 
 dataset = source.to_dataset(data)
 apply_indicators(dataset)
-print(dataset)
