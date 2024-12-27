@@ -1,7 +1,10 @@
 import os
 import json
 import f
-import source
+import provider
+
+
+with open('../settings.json', 'r') as fh: settings = json.load(fh)
 
 
 def apply_indicators(dataset):
@@ -39,17 +42,28 @@ def apply_indicators(dataset):
     return dataset
 
 
-with open('../settings.json', 'r') as fh: settings = json.load(fh)
-api = source.BitvavoRestClient(settings['key'], settings['secret'])
+def test():
+    api = provider.TestClient(settings['key'], settings['secret'])
+    api.preload_data(markets_intervals=[('BTC-EUR', '1h')])
+    breakpoint()
 
-balance = api.balance('DOGE')
 
-data = source.load('BTC-EUR', '1h')
-if len(data) == 0:
-    data = api.get_candles('BTC-EUR', '1h', 40)
-else:
-    data = api.get_candles('BTC-EUR', '1h', 5, data)
-source.save(data, 'BTC-EUR', '1h')
+def live():
+    api = provider.BitvavoRestClient(settings['key'], settings['secret'])
+    data = api.get_data('BTC-EUR', '1h', amount=1440)
+    data = api.get_data('BTC-EUR', '1h', amount=1440, data=data)
+    dataset = provider.to_dataset(data)
+    breakpoint()
 
-dataset = source.to_dataset(data)
-apply_indicators(dataset)
+
+def load_if(market : str, interval : str, number: int = 1, save: bool = True):
+    data = provider.load('BTC-EUR', '1h')
+    if len(data) == 0:
+        data = api.get_data(market,  interval, number)
+        if save: provider.save(data, market, interval)
+    return data
+
+
+if __name__ == '__main__':
+    test()
+    #live()
