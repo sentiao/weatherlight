@@ -10,8 +10,12 @@ import numpy as np
 import pandas as pd
 
 
-with open('../settings.json', 'r') as fh: settings = json.load(fh)
 API_LIMIT_MINIMUM = 100
+
+
+def settings():
+    with open('../settings.json', 'r') as fh:
+        return json.load(fh)
 
 
 class BitvavoRestClient:
@@ -114,24 +118,31 @@ class BitvavoRestClient:
         return signature
 
 
-class TestClient(BitvavoRestClient):    
-    def preload_data(self, markets_intervals: list):
-        self.data = {}
-        for market, interval in markets_intervals:
-            data = load(market, interval)
-            if len(data) == 0:
-                data = self.get_data(market,  interval, number)
-                if save: save(data, market, interval)
-            self.data[(market, interval)] = data
-    
+class TestClient(BitvavoRestClient):
+    def __init__(self, data, balance={}):
+        self.DEBUG = False
+        self.data = data
+        self.balance = balance
+        self.n = -1
+        self.current = None
+
     def place_order(self, market: str, side: str, order_type: str, amount: float):
         pass
 
     def balance(self, symbol: str = ''):
-        pass
+        if symbol: return self.balance.get(symbol)
+        else: return self.balance
 
-    def get_data(self, market, interval, number=1, data=np.array([])):
-        pass
+    def get_data(self):
+        return self.current
+
+    def step(self):
+        if self.n+1440 > len(self.data) - 2:
+            return False
+        else:
+            self.n += 1
+            self.current = self.data[:-1][self.n:self.n+1440]
+            return True
 
 
 def to_dataset(data):

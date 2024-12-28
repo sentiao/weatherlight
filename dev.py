@@ -1,69 +1,66 @@
 import os
-import json
-import f
+import indicators
 import provider
 
 
-with open('../settings.json', 'r') as fh: settings = json.load(fh)
-
-
 def apply_indicators(dataset):
-    indicators = [
-        (f.sma, 10, 'sma10c'),
-        (f.sma, 20, 'sma20c'),
-        (f.sma, 30, 'sma30c'),
-        (f.sma, 40, 'sma40c'),
-        (f.sma, 50, 'sma50c'),
-        (f.sma, 100, 'sma100c'),
-        (f.sma, 10, 'sma10v', 'volume'),
-        (f.sma, 20, 'sma20v', 'volume'),
-        (f.sma, 30, 'sma30v', 'volume'),
-        (f.sma, 40, 'sma40v', 'volume'),
-        (f.sma, 50, 'sma50v', 'volume'),
-        (f.sma, 100, 'sma100v', 'volume'),
-        (f.ema, 10, 'ema10c'),
-        (f.ema, 20, 'ema20c'),
-        (f.ema, 30, 'ema30c'),
-        (f.ema, 40, 'ema40c'),
-        (f.ema, 50, 'ema50c'),
-        (f.ema, 100, 'ema100c'),
-        (f.ema, 10, 'ema10v', 'volume'),
-        (f.ema, 20, 'ema20v', 'volume'),
-        (f.ema, 30, 'ema30v', 'volume'),
-        (f.ema, 40, 'ema40v', 'volume'),
-        (f.ema, 50, 'ema50v', 'volume'),
-        (f.ema, 100, 'ema100v', 'volume'),
+    indicator_list = [
+        (indicators.sma, 10, 'sma10c'),
+        (indicators.sma, 20, 'sma20c'),
+        (indicators.sma, 30, 'sma30c'),
+        (indicators.sma, 40, 'sma40c'),
+        (indicators.sma, 50, 'sma50c'),
+        (indicators.sma, 100, 'sma100c'),
+        (indicators.sma, 10, 'sma10v', 'volume'),
+        (indicators.sma, 20, 'sma20v', 'volume'),
+        (indicators.sma, 30, 'sma30v', 'volume'),
+        (indicators.sma, 40, 'sma40v', 'volume'),
+        (indicators.sma, 50, 'sma50v', 'volume'),
+        (indicators.sma, 100, 'sma100v', 'volume'),
+        (indicators.ema, 10, 'ema10c'),
+        (indicators.ema, 20, 'ema20c'),
+        (indicators.ema, 30, 'ema30c'),
+        (indicators.ema, 40, 'ema40c'),
+        (indicators.ema, 50, 'ema50c'),
+        (indicators.ema, 100, 'ema100c'),
+        (indicators.ema, 10, 'ema10v', 'volume'),
+        (indicators.ema, 20, 'ema20v', 'volume'),
+        (indicators.ema, 30, 'ema30v', 'volume'),
+        (indicators.ema, 40, 'ema40v', 'volume'),
+        (indicators.ema, 50, 'ema50v', 'volume'),
+        (indicators.ema, 100, 'ema100v', 'volume'),
     ]
 
-    for indicator in indicators:
+    for indicator in indicator_list:
         func = indicator[0]
         args = indicator[1:]
         func(dataset, *args)
+
+    dataset.dropna(axis=0, inplace=True)
+    dataset = dataset.reset_index(drop=True)
     return dataset
 
 
 def test():
-    api = provider.TestClient(settings['key'], settings['secret'])
-    api.preload_data(markets_intervals=[('BTC-EUR', '1h')])
-    breakpoint()
+    api = provider.BitvavoRestClient(provider.settings()['key'], provider.settings()['secret'])
+    api.DEBUG = True
+    data = api.get_data('BTC-EUR', '1h', number=40)
+    api = provider.TestClient(data, {'EUR': 1000})
+    
+    step = True
+    while step:
+        step = api.step()
+        data = api.get_data()
+        dataset = provider.to_dataset(data)
+        dataset = apply_indicators(dataset)
+        print(dataset.iloc[-1].date, end='\r')
+    print()
 
 
-def live():
-    api = provider.BitvavoRestClient(settings['key'], settings['secret'])
-    data = api.get_data('BTC-EUR', '1h', amount=1440)
-    data = api.get_data('BTC-EUR', '1h', amount=1440, data=data)
-    dataset = provider.to_dataset(data)
-    breakpoint()
-
-
-def load_if(market : str, interval : str, number: int = 1, save: bool = True):
-    data = provider.load('BTC-EUR', '1h')
-    if len(data) == 0:
-        data = api.get_data(market,  interval, number)
-        if save: provider.save(data, market, interval)
-    return data
 
 
 if __name__ == '__main__':
     test()
-    #live()
+
+
+    # if window.iloc[0].hasnans: continue
