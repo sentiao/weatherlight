@@ -1,6 +1,34 @@
+import sys
 import os
+from datetime import datetime
+import pickle
 import indicators
 import provider
+
+
+
+def to_dataset(data):
+    data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+    data['timestamp'] = data['date']
+    data['date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
+    return data
+
+
+def load(market, interval):
+    data_fn = f'../data/data-{market}-{interval}.dat'
+    data = np.array([])
+    if os.path.exists(data_fn):
+        with open(data_fn, 'rb') as fh:
+            data = pickle.load(fh)
+    return data
+
+
+def save(data, market, interval):
+    with open(f'../data/data-{market}-{interval}.dat', 'wb') as fh:
+        pickle.dump(data, fh)
+
+def to_date(timestamp):
+    return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
 
 
 def apply_indicators(dataset):
@@ -41,26 +69,71 @@ def apply_indicators(dataset):
     return dataset
 
 
-def test():
-    api = provider.BitvavoRestClient(provider.settings()['key'], provider.settings()['secret'])
-    api.DEBUG = True
-    data = api.get_data('BTC-EUR', '1h', number=40)
-    api = provider.TestClient(data, {'EUR': 1000})
+def strat(row):
+    pass
+
+
+def backtest():
     
+    # prepare data, based on saved data, or refresh and save
+    data = load('BTC-EUR', '1h')
+    if not len(data):
+        api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        data = api.get_data(market='BTC-EUR', interval='1h', number=40)
+        save(data, 'BTC-EUR', '1h')
+    
+    # set up test environment
+    api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': 1000})
+    
+    # step through test data
     step = True
     while step:
         step = api.step()
         data = api.get_data()
-        dataset = provider.to_dataset(data)
+        dataset = to_dataset(data)
         dataset = apply_indicators(dataset)
         print(dataset.iloc[-1].date, end='\r')
     print()
 
 
 
+def test():
+    api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+    api.DEBUG = True
+
+
+    # status
+    print('--status--')
+    eur = float(api.balance(symbol='EUR')[0]['available'])
+    print(f'{eur=}')
+    btc = float(api.balance(symbol='BTC')[0]['available'])
+    print(f'{btc=}')
+
+
+    # buy
+    print('--buy--')
+    result = api.place_order(market='BTC-EUR', side='BUY', order_type='market', amountQuote=eur)
+    print(result)
+    result = api.place_order(market='BTC-EUR', side='SELL', order_type='market', amount=btc)
+    print(result)
+
+    provider.time.sleep(5)
+
+    # status
+    print('--status--')
+    eur = float(api.balance('EUR')[0]['available'])
+    print(f'{eur=}')
+    btc = float(api.balance('BTC')[0]['available'])
+    print(f'{btc=}')
+    trades = api.get_trades(market='BTC-EUR')[0]
+    print(f'{trades=}')
+
+
+
 
 if __name__ == '__main__':
-    test()
-
-
-    # if window.iloc[0].hasnans: continue
+    if '--test' in sys.argv: test()
+    if '--backtest' in sys.argv: backtest()
+    if '--dev' in sys.argv:
+        api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        breakpoint()
