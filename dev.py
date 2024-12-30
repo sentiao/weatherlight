@@ -47,15 +47,16 @@ def apply_indicators(dataset):
     return dataset
 
 
-def gal(f: str = '', d: list = []):
+def GDL_parse(f: str = '', d: list = [], template='data.iloc[-1]["%s"]'):
+    '''Genetic Description Language requires a function and a databank as input, and returns an evaluatable function in return'''
     gene = []
     for n in f:
-        if re.match('\d+', n):
+        if re.match(r'\d+', n):
             p = d[int(n) % len(d)]
-            if re.match('\d.+', p):
+            if re.match(r'\d.+', p):
                 gene += p
             else:
-                gene += f'data.iloc[-1]["{d[int(n) % len(d)]}"]'
+                gene += template % d[int(n) % len(d)]
         else:
             gene += n
     return ''.join(gene)
@@ -65,6 +66,7 @@ def gal(f: str = '', d: list = []):
 def strat(api: provider.BitvavoRestClient, market: str):
     symbol, quote = market.split('-')
     data = api.current
+    breakpoint()
     eur = api.get_balance(quote)[0]['available']
     btc = api.get_balance(symbol)[0]['available']
     try:
@@ -74,16 +76,7 @@ def strat(api: provider.BitvavoRestClient, market: str):
 
     d = ['rsi', 'ema360c', '70.0', 'close']
     f = ['(', '4', '>', '2', ')', '&', '(', '3', '>', '1', ')']
-
-
-
-    buy_signal = all([
-        btc == 0,
-        eur > 10,
-        data.iloc[-1].rsi > 70,
-        data.iloc[-1].close > data.iloc[-1].ema360c,
-    ])
-    buy_signal = eval(gal(f, d)) & all([btc==0, eur>10])
+    buy_signal = eval(GDL_parse(f, d)) & all([btc==0, eur>10])
 
     sell_signal = any([all([
         btc != 0,
@@ -101,7 +94,7 @@ def strat(api: provider.BitvavoRestClient, market: str):
     return buy_signal, sell_signal
 
 
-def backtest():
+def test():
     wallet_start = 1000
     market = 'ETH-EUR'
     interval = '1h'
@@ -135,6 +128,8 @@ def backtest():
         eur = float(api.get_balance(symbol='EUR')[0]['available'])
         sym = float(api.get_balance(symbol=symbol)[0]['available'])
         
+        # todo:
+        # strat needs to have state, be grown before the first run, and then iterate With the data
         buy, sell = strat(api, market)
         if buy:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=eur)
@@ -159,24 +154,6 @@ def backtest():
     print(f'Algo performance:   {algo_performance:.2f}%')
 
 
-
-def test():
-    api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-
-    # status
-    print('--status--')
-    eur = float(api.get_balance(symbol='EUR')[0]['available'])
-    print(f'{eur=}')
-    btc = float(api.get_balance(symbol='BTC')[0]['available'])
-    print(f'{btc=}')
-
-    print('--buy--')
-    result = api.place_order(market='BTC-EUR', side='buy', order_type='market', amountQuote=eur)
-    print(result)
-    print('--sell--')
-    result = api.place_order(market='BTC-EUR', side='sell', order_type='market', amount=btc)
-    print(result)
-
 def status():
     api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
     # status
@@ -193,7 +170,6 @@ def status():
 
 if __name__ == '__main__':
     if '--test' in sys.argv: test()
-    if '--backtest' in sys.argv: backtest()
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
