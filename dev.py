@@ -43,13 +43,13 @@ def apply_indicators(dataset):
     return dataset
 
 
-def strat(api: provider.BitvavoRestClient):
-    dataset = provider.to_dataset(api.current)
-    dataset = apply_indicators(dataset)
-    eur = api.get_balance('EUR')[0]['available']
-    btc = api.get_balance('BTC')[0]['available']
+def strat(api: provider.BitvavoRestClient, market: str):
+    symbol, quote = market.split('-')
+    dataset = api.current
+    eur = api.get_balance(quote)[0]['available']
+    btc = api.get_balance(symbol)[0]['available']
     try:
-        history = api.get_trades('BTC-EUR')[0]['price']
+        history = api.get_trades(market)[0]['price']
     except:
         history = 0
 
@@ -79,41 +79,60 @@ def strat(api: provider.BitvavoRestClient):
 
 
 def backtest():
-    
+    wallet_start = 1000
     market = 'ETH-EUR'
-    symbol = 'ETH'
+    
+    value_start = 0
+    symbol, quote = market.split('-')
 
     # prepare data, based on saved data, or refresh and save
     data = load(market, '1h')
+    data = []
     if not len(data):
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
         data = api.get_data(market=market, interval='1h', number=40)
         save(data, market, '1h')
-    
+
+
     # set up test environment
-    api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': 1000})
+    data = apply_indicators(data)
+    api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': wallet_start})
     
+
     # step through test data
     step = True
     while step:
         step = api.step()
-        
         data = api.get_data()
-        dataset = provider.to_dataset(data)
+
+        if not value_start:
+            value_start = data.iloc[-1].close
         
         eur = float(api.get_balance(symbol='EUR')[0]['available'])
-        btc = float(api.get_balance(symbol=symbol)[0]['available'])
+        sym = float(api.get_balance(symbol=symbol)[0]['available'])
         
-        buy, sell = strat(api)
+        buy, sell = strat(api, market)
         if buy:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=eur)
-            print('BOUGHT', end='\r')
         if sell:
-            result = api.place_order(market=market, side='sell', order_type='market', amount=btc)
-            print('SOLD', end='\r')
-        print(f'       {dataset.iloc[-1].date:19s}  EUR={eur:016.2f}  {symbol}={btc:016.4f}', end='\r')
+            result = api.place_order(market=market, side='sell', order_type='market', amount=sym)
+        print(f'{data.iloc[-1].Date:19s}  EUR={eur:016.2f}  {symbol}={sym:016.4f}', end='\r')
     
     print()
+
+    value_end = data.iloc[-1].close
+    market_performance = value_end/value_start
+    wallet_end = eur+(value_end*sym)
+    algo_performance = wallet_end/wallet_start
+
+
+    print(f'Value start:        {value_start:.2f} EUR')
+    print(f'Value end:          {value_end:.2f} EUR')
+    print(f'Market performance: {market_performance:.2f}%')
+    print()
+    print(f'Wallet start:       {wallet_start:.2f} EUR')
+    print(f'Wallet end:         {wallet_end:.2f} EUR')
+    print(f'Algo performance:   {algo_performance:.2f}%')
 
 
 

@@ -19,8 +19,7 @@ def settings():
 
 def to_dataset(data):
     data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-    data['timestamp'] = data['date']
-    data['date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
+    data['Date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
     return data
 
 
@@ -60,7 +59,8 @@ class BitvavoRestClient:
         else:
             return self.__request(endpoint=f'/balance', method='GET')
 
-    def get_data(self, market, interval, amount=1440, number=1, data=np.array([])):
+    def get_data(self, market, interval, amount=1440, number=1):
+        data=np.array([])
         for n in range(number):
             if len(data):
                 end = data[0][0]
@@ -76,7 +76,7 @@ class BitvavoRestClient:
             data = np.unique(data, axis=0)
             data = data[data[:, 0].argsort()]
         
-        return data
+        return to_dataset(data)
 
     def __request(self, endpoint: str, body: dict | None = None, method: str = 'GET'):
         """
@@ -132,7 +132,7 @@ class BitvavoRestClient:
 
 
 class TestClient(BitvavoRestClient):
-    def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, data=np.array([]), balance={}):
+    def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, data=None, balance={}):
         super().__init__(api_key, api_secret, access_window)
         self.__data = data
         self.__balance = balance
@@ -144,7 +144,7 @@ class TestClient(BitvavoRestClient):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = to_dataset(self.current).iloc[-1].close
+        price = self.current.iloc[-1].close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -198,5 +198,5 @@ class TestClient(BitvavoRestClient):
             return False
         else:
             self.__n += 1
-            self.current = self.__data[:-1][self.__n:self.__n+1440]
+            self.current = self.__data.iloc[:-1].iloc[self.__n:self.__n+1440]
             return True
