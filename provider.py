@@ -4,6 +4,7 @@ import json
 import hashlib
 import hmac
 import time
+from datetime import datetime
 import numpy as np
 import pandas as pd
 
@@ -16,6 +17,13 @@ def settings():
         return json.load(fh)
 
 
+def to_dataset(data):
+    data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+    data['timestamp'] = data['date']
+    data['date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
+    return data
+
+
 class BitvavoRestClient:
     def __init__(self, api_key: str, api_secret: str, access_window: int = 10000):
         self.api_key = api_key
@@ -23,7 +31,6 @@ class BitvavoRestClient:
         self.access_window = access_window
         self.base = 'https://api.bitvavo.com/v2'
         self.limit = 0
-        self.history = {}
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         """
@@ -47,7 +54,7 @@ class BitvavoRestClient:
     def get_trades(self, market: str = ''):
         return self.__request(endpoint=f'/trades?market={market}', method='GET')
 
-    def balance(self, symbol: str = ''):
+    def get_balance(self, symbol: str = ''):
         if symbol:
             return self.__request(endpoint=f'/balance?symbol={symbol}', method='GET')
         else:
@@ -127,26 +134,69 @@ class BitvavoRestClient:
 class TestClient(BitvavoRestClient):
     def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, data=np.array([]), balance={}):
         super().__init__(api_key, api_secret, access_window)
-        self.data = data
-        self.balance = balance
-        
-        self.n = -1
+        self.__data = data
+        self.__balance = balance
+        self.__trades = []
+        self.__n = -1
         self.current = None
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
-        pass
+        now = str(int(time.time() * 1000))
 
-    def balance(self, *, symbol: str = ''):
-        if symbol: return self.balance.get(symbol)
-        else: return self.balance
+        symbol, quote = market.split('-')
+        price = to_dataset(self.current).iloc[-1].close
+
+        if side == 'buy':
+            fee = amountQuote * 0.0025
+            amount = (amountQuote - fee) / price
+
+            self.__balance[quote] = self.__balance.get(quote, 0) - amountQuote
+            self.__balance[symbol] = self.__balance.get(symbol, 0) + amount
+
+        if side == 'sell':
+            amountQuote = amount * price
+            fee = amountQuote * 0.0025
+            amountQuote -= fee
+
+            self.__balance[symbol] = self.__balance.get(symbol, 0) - amount
+            self.__balance[quote] = self.__balance.get(quote, 0) + amountQuote
+
+        trade = {
+            'timestamp': now,
+            'side': side,
+            'market': market,
+            'amount': amount,
+            'price': price,
+            'fee': fee,
+        }
+        self.__trades = [trade] + self.__trades
+        return trade
+
+    def get_trades(self, market: str = ''):
+        trades = []
+        for trade in self.__trades:
+            if market and not trade['market'] == market: continue
+            trades.append(trade)
+        return trades
+
+    def get_balance(self, symbol: str = ''):
+        balances = [{'symbol': symbol, 'available': amount} for symbol, amount in self.__balance.items()]
+        if symbol:
+            for balance in balances:
+                if balance['symbol'] == symbol: return [balance]
+            else:
+                self.__balance[symbol] = 0
+                return [{'symbol': symbol, 'available': 0}]
+        else:
+            return balances
 
     def get_data(self, *args, **kwargs):
         return self.current
 
     def step(self):
-        if self.n+1440 > len(self.data) - 2:
+        if self.__n+1440 > len(self.__data) - 2:
             return False
         else:
-            self.n += 1
-            self.current = self.data[:-1][self.n:self.n+1440]
+            self.__n += 1
+            self.current = self.__data[:-1][self.__n:self.__n+1440]
             return True

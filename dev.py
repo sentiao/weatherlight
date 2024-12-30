@@ -1,17 +1,10 @@
 import sys
 import os
-from datetime import datetime
 import pickle
+import numpy as np
+import pandas as pd
 import indicators
 import provider
-
-
-
-def to_dataset(data):
-    data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-    data['timestamp'] = data['date']
-    data['date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
-    return data
 
 
 def load(market, interval):
@@ -27,36 +20,17 @@ def save(data, market, interval):
     with open(f'../data/data-{market}-{interval}.dat', 'wb') as fh:
         pickle.dump(data, fh)
 
+
 def to_date(timestamp):
     return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
 
 
 def apply_indicators(dataset):
     indicator_list = [
-        (indicators.sma, 10, 'sma10c'),
-        (indicators.sma, 20, 'sma20c'),
-        (indicators.sma, 30, 'sma30c'),
-        (indicators.sma, 40, 'sma40c'),
-        (indicators.sma, 50, 'sma50c'),
-        (indicators.sma, 100, 'sma100c'),
-        (indicators.sma, 10, 'sma10v', 'volume'),
-        (indicators.sma, 20, 'sma20v', 'volume'),
-        (indicators.sma, 30, 'sma30v', 'volume'),
-        (indicators.sma, 40, 'sma40v', 'volume'),
-        (indicators.sma, 50, 'sma50v', 'volume'),
-        (indicators.sma, 100, 'sma100v', 'volume'),
-        (indicators.ema, 10, 'ema10c'),
-        (indicators.ema, 20, 'ema20c'),
-        (indicators.ema, 30, 'ema30c'),
-        (indicators.ema, 40, 'ema40c'),
-        (indicators.ema, 50, 'ema50c'),
-        (indicators.ema, 100, 'ema100c'),
-        (indicators.ema, 10, 'ema10v', 'volume'),
-        (indicators.ema, 20, 'ema20v', 'volume'),
-        (indicators.ema, 30, 'ema30v', 'volume'),
-        (indicators.ema, 40, 'ema40v', 'volume'),
-        (indicators.ema, 50, 'ema50v', 'volume'),
-        (indicators.ema, 100, 'ema100v', 'volume'),
+        (indicators.ema, 240, 'ema240c'),
+        (indicators.ema, 360, 'ema360c'),
+        (indicators.rsi, 25, 'rsi25c'),
+        (indicators.atr, 50, 'atr50c'),
     ]
 
     for indicator in indicator_list:
@@ -69,18 +43,52 @@ def apply_indicators(dataset):
     return dataset
 
 
-def strat(row):
-    pass
+def strat(api: provider.BitvavoRestClient):
+    dataset = provider.to_dataset(api.current)
+    dataset = apply_indicators(dataset)
+    eur = api.get_balance('EUR')[0]['available']
+    btc = api.get_balance('BTC')[0]['available']
+    try:
+        history = api.get_trades('BTC-EUR')[0]['price']
+    except:
+        history = 0
+
+    buy_signal = all([
+        btc == 0,
+        eur > 10,
+        dataset.iloc[-1].rsi25c > 70,
+        dataset.iloc[-1].close > dataset.iloc[-1].ema360c,
+    ])
+
+
+    sell_signal = any([all([
+        btc != 0,
+        30 > dataset.iloc[-1].rsi25c,
+        dataset.iloc[-1].close > history * 1.0025,
+        dataset.iloc[-1].ema240c > dataset.iloc[-1].close,
+    ]), all([
+        btc != 0,
+        history * 0.95 > dataset.iloc[-1].close
+    ])])
+
+    if buy_signal and sell_signal:
+        buy_signal = False
+
+
+    return buy_signal, sell_signal
 
 
 def backtest():
     
+    market = 'ETH-EUR'
+    symbol = 'ETH'
+
     # prepare data, based on saved data, or refresh and save
-    data = load('BTC-EUR', '1h')
+    data = load(market, '1h')
     if not len(data):
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-        data = api.get_data(market='BTC-EUR', interval='1h', number=40)
-        save(data, 'BTC-EUR', '1h')
+        data = api.get_data(market=market, interval='1h', number=40)
+        save(data, market, '1h')
     
     # set up test environment
     api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': 1000})
@@ -89,41 +97,50 @@ def backtest():
     step = True
     while step:
         step = api.step()
+        
         data = api.get_data()
-        dataset = to_dataset(data)
-        dataset = apply_indicators(dataset)
-        print(dataset.iloc[-1].date, end='\r')
+        dataset = provider.to_dataset(data)
+        
+        eur = float(api.get_balance(symbol='EUR')[0]['available'])
+        btc = float(api.get_balance(symbol=symbol)[0]['available'])
+        
+        buy, sell = strat(api)
+        if buy:
+            result = api.place_order(market=market, side='buy', order_type='market', amountQuote=eur)
+            print('BOUGHT', end='\r')
+        if sell:
+            result = api.place_order(market=market, side='sell', order_type='market', amount=btc)
+            print('SOLD', end='\r')
+        print(f'       {dataset.iloc[-1].date:19s}  EUR={eur:016.2f}  {symbol}={btc:016.4f}', end='\r')
+    
     print()
 
 
 
 def test():
     api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-    api.DEBUG = True
-
 
     # status
     print('--status--')
-    eur = float(api.balance(symbol='EUR')[0]['available'])
+    eur = float(api.get_balance(symbol='EUR')[0]['available'])
     print(f'{eur=}')
-    btc = float(api.balance(symbol='BTC')[0]['available'])
+    btc = float(api.get_balance(symbol='BTC')[0]['available'])
     print(f'{btc=}')
 
-
-    # buy
     print('--buy--')
-    result = api.place_order(market='BTC-EUR', side='BUY', order_type='market', amountQuote=eur)
+    result = api.place_order(market='BTC-EUR', side='buy', order_type='market', amountQuote=eur)
     print(result)
-    result = api.place_order(market='BTC-EUR', side='SELL', order_type='market', amount=btc)
+    print('--sell--')
+    result = api.place_order(market='BTC-EUR', side='sell', order_type='market', amount=btc)
     print(result)
 
-    provider.time.sleep(5)
-
+def status():
+    api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
     # status
     print('--status--')
-    eur = float(api.balance('EUR')[0]['available'])
+    eur = float(api.get_balance('EUR')[0]['available'])
     print(f'{eur=}')
-    btc = float(api.balance('BTC')[0]['available'])
+    btc = float(api.get_balance('BTC')[0]['available'])
     print(f'{btc=}')
     trades = api.get_trades(market='BTC-EUR')[0]
     print(f'{trades=}')
@@ -134,6 +151,8 @@ def test():
 if __name__ == '__main__':
     if '--test' in sys.argv: test()
     if '--backtest' in sys.argv: backtest()
+    if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        print(api.get_trades('BTC-EUR')[0])
         breakpoint()
