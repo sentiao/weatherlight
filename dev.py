@@ -1,6 +1,7 @@
 import sys
 import os
 import pickle
+import re
 import numpy as np
 import pandas as pd
 import indicators
@@ -26,26 +27,44 @@ def to_date(timestamp):
 
 
 def apply_indicators(dataset):
+    f = 1
     indicator_list = [
-        (indicators.ema, 240, 'ema240c'),
-        (indicators.ema, 360, 'ema360c'),
-        (indicators.rsi, 25, 'rsi25c'),
-        (indicators.atr, 50, 'atr50c'),
+        (indicators.ema, 240*f, 'ema240c'),
+        (indicators.ema, 360*f, 'ema360c'),
+        (indicators.rsi, 25*f, 'rsi'),
     ]
 
     for indicator in indicator_list:
         func = indicator[0]
         args = indicator[1:]
+        print(f'{func} {args}')
         func(dataset, *args)
 
+    print('dropna')
     dataset.dropna(axis=0, inplace=True)
+    print('reset index')
     dataset = dataset.reset_index(drop=True)
     return dataset
 
 
+def gal(f: str = '', d: list = []):
+    gene = []
+    for n in f:
+        if re.match('\d+', n):
+            p = d[int(n) % len(d)]
+            if re.match('\d.+', p):
+                gene += p
+            else:
+                gene += f'data.iloc[-1]["{d[int(n) % len(d)]}"]'
+        else:
+            gene += n
+    return ''.join(gene)
+    
+
+
 def strat(api: provider.BitvavoRestClient, market: str):
     symbol, quote = market.split('-')
-    dataset = api.current
+    data = api.current
     eur = api.get_balance(quote)[0]['available']
     btc = api.get_balance(symbol)[0]['available']
     try:
@@ -53,27 +72,31 @@ def strat(api: provider.BitvavoRestClient, market: str):
     except:
         history = 0
 
+    d = ['rsi', 'ema360c', '70.0', 'close']
+    f = ['(', '4', '>', '2', ')', '&', '(', '3', '>', '1', ')']
+
+
+
     buy_signal = all([
         btc == 0,
         eur > 10,
-        dataset.iloc[-1].rsi25c > 70,
-        dataset.iloc[-1].close > dataset.iloc[-1].ema360c,
+        data.iloc[-1].rsi > 70,
+        data.iloc[-1].close > data.iloc[-1].ema360c,
     ])
-
+    buy_signal = eval(gal(f, d)) & all([btc==0, eur>10])
 
     sell_signal = any([all([
         btc != 0,
-        30 > dataset.iloc[-1].rsi25c,
-        dataset.iloc[-1].close > history * 1.0025,
-        dataset.iloc[-1].ema240c > dataset.iloc[-1].close,
+        30 > data.iloc[-1].rsi,
+        data.iloc[-1].close > history * 1.0025,
+        data.iloc[-1].ema240c > data.iloc[-1].close,
     ]), all([
         btc != 0,
-        history * 0.95 > dataset.iloc[-1].close
+        history * 0.95 > data.iloc[-1].close
     ])])
 
     if buy_signal and sell_signal:
         buy_signal = False
-
 
     return buy_signal, sell_signal
 
@@ -81,20 +104,21 @@ def strat(api: provider.BitvavoRestClient, market: str):
 def backtest():
     wallet_start = 1000
     market = 'ETH-EUR'
+    interval = '1h'
     
     value_start = 0
     symbol, quote = market.split('-')
 
     # prepare data, based on saved data, or refresh and save
-    data = load(market, '1h')
-    data = []
+    data = load(market, interval)    
     if not len(data):
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-        data = api.get_data(market=market, interval='1h', number=40)
-        save(data, market, '1h')
+        data = api.get_data(market=market, interval=interval, number=200)
+        save(data, market, interval)
 
 
     # set up test environment
+    print('Apply indicators')
     data = apply_indicators(data)
     api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': wallet_start})
     
@@ -121,9 +145,9 @@ def backtest():
     print()
 
     value_end = data.iloc[-1].close
-    market_performance = value_end/value_start
+    market_performance = ((value_end/value_start)-1)*100
     wallet_end = eur+(value_end*sym)
-    algo_performance = wallet_end/wallet_start
+    algo_performance = ((wallet_end/wallet_start)-1)*100
 
 
     print(f'Value start:        {value_start:.2f} EUR')
