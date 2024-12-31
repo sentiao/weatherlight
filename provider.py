@@ -132,19 +132,21 @@ class BitvavoRestClient:
 
 
 class TestClient(BitvavoRestClient):
+    __data = None
+    current = None
+
     def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, data=None, balance={}):
         super().__init__(api_key, api_secret, access_window)
-        self.__data = data
+        if not TestClient.__data: TestClient.__data = data
         self.__balance = balance
         self.__trades = []
         self.__n = -1
-        self.current = None
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = self.current.iloc[-1].close
+        price = TestClient.current.iloc[-1].close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -191,12 +193,15 @@ class TestClient(BitvavoRestClient):
             return balances
 
     def get_data(self, *args, **kwargs):
-        return self.current
+        return TestClient.current
 
     def step(self):
-        if self.__n+1440 > len(self.__data) - 2:
+        if self.__n+1440 > len(TestClient.__data) - 2:
             return False
         else:
             self.__n += 1
-            self.current = self.__data.iloc[:-1].iloc[self.__n:self.__n+1440]
+            TestClient.current = TestClient.__data.iloc[:-1].iloc[self.__n:self.__n+1440]
             return True
+
+    def net_worth(self, symbol):
+        return (TestClient.current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])

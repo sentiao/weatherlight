@@ -47,59 +47,28 @@ def apply_indicators(dataset):
     return dataset
 
 
-def GDL_parse(f: str = '', d: list = [], template='data.iloc[-1]["%s"]'):
-    '''Genetic Description Language requires a function and a databank as input, and returns an evaluatable function in return'''
-    gene = []
-    for n in f:
-        if re.match(r'\d+', n):
-            p = d[int(n) % len(d)]
-            if re.match(r'\d.+', p):
-                gene += p
-            else:
-                gene += template % d[int(n) % len(d)]
-        else:
-            gene += n
-    return ''.join(gene)
-    
-
-
 def strat(api: provider.BitvavoRestClient, market: str):
     symbol, quote = market.split('-')
     data = api.current
-    breakpoint()
     eur = api.get_balance(quote)[0]['available']
     btc = api.get_balance(symbol)[0]['available']
     try:
         history = api.get_trades(market)[0]['price']
     except:
         history = 0
-
-    d = ['rsi', 'ema360c', '70.0', 'close']
-    f = ['(', '4', '>', '2', ')', '&', '(', '3', '>', '1', ')']
-    buy_signal = eval(GDL_parse(f, d)) & all([btc==0, eur>10])
-
-    sell_signal = any([all([
-        btc != 0,
-        30 > data.iloc[-1].rsi,
-        data.iloc[-1].close > history * 1.0025,
-        data.iloc[-1].ema240c > data.iloc[-1].close,
-    ]), all([
-        btc != 0,
-        history * 0.95 > data.iloc[-1].close
-    ])])
+    
+    buy_signal = (data.iloc[-1].rsi > 70.0) & (data.iloc[-1].close > data.iloc[-1].ema360c) & (btc == 0) & (eur > 10)
+    sell_signal = (btc != 0) & (30 > data.iloc[-1].rsi) & (data.iloc[-1].close > history * 1.0025) & (data.iloc[-1].ema240c > data.iloc[-1].close) | (btc != 0) & (history * 0.95 > data.iloc[-1].close)
 
     if buy_signal and sell_signal:
         buy_signal = False
 
     return buy_signal, sell_signal
 
-
 def test():
-    wallet_start = 1000
     market = 'ETH-EUR'
     interval = '1h'
     
-    value_start = 0
     symbol, quote = market.split('-')
 
     # prepare data, based on saved data, or refresh and save
@@ -111,10 +80,11 @@ def test():
 
 
     # set up test environment
+    value_start = 0
+    wallet_start = 1000
     print('Apply indicators')
     data = apply_indicators(data)
-    api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': wallet_start})
-    
+    api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': 1000})
 
     # step through test data
     step = True
@@ -141,7 +111,7 @@ def test():
 
     value_end = data.iloc[-1].close
     market_performance = ((value_end/value_start)-1)*100
-    wallet_end = eur+(value_end*sym)
+    wallet_end = api.net_worth(symbol)
     algo_performance = ((wallet_end/wallet_start)-1)*100
 
 
@@ -167,11 +137,41 @@ def status():
 
 
 
+class Test():
+    value = 10
+
+    @classmethod
+    def add(cls):
+        cls.value += 1
+    
+    def __init__(self, i):
+        Test.value = i
+
+
+t1 = Test(100)
+t1.add()
+
+t2 = Test(80)
+t3 = Test(60)
+t2.add()
+t3.add()
+
+print(t1.value, t2.value, t3.value)
+
+
+
 
 if __name__ == '__main__':
     if '--test' in sys.argv: test()
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
+        import gdl
+
+        data = [10, 20, 30, 40, 50]
+        chromosome = gdl.new_chromosome(length=1)
+        function = gdl.to_function(chromosome=chromosome, template='data[{}%5]')
+
+        # data.iloc[0].iloc[4:-1]
+
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-        print(api.get_trades('BTC-EUR')[0])
         breakpoint()
