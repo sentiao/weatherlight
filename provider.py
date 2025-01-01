@@ -19,7 +19,8 @@ def settings():
 
 def to_dataset(data):
     data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-    data['Date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
+    data.insert(0, 'Date', data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S')))
+    #data['Date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
     return data
 
 
@@ -132,15 +133,15 @@ class BitvavoRestClient:
 
 
 class TestClient(BitvavoRestClient):
-    __data = None
+    data = None
     current = None
 
     def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, data=None, balance={}):
         super().__init__(api_key, api_secret, access_window)
-        if not TestClient.__data: TestClient.__data = data
-        self.__balance = balance
-        self.__trades = []
-        self.__n = -1
+        if TestClient.data is None: TestClient.data = data
+        self.balance = balance
+        self.trades = []
+        self.n = -1
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
@@ -152,16 +153,16 @@ class TestClient(BitvavoRestClient):
             fee = amountQuote * 0.0025
             amount = (amountQuote - fee) / price
 
-            self.__balance[quote] = self.__balance.get(quote, 0) - amountQuote
-            self.__balance[symbol] = self.__balance.get(symbol, 0) + amount
+            self.balance[quote] = self.balance.get(quote, 0) - amountQuote
+            self.balance[symbol] = self.balance.get(symbol, 0) + amount
 
         if side == 'sell':
             amountQuote = amount * price
             fee = amountQuote * 0.0025
             amountQuote -= fee
 
-            self.__balance[symbol] = self.__balance.get(symbol, 0) - amount
-            self.__balance[quote] = self.__balance.get(quote, 0) + amountQuote
+            self.balance[symbol] = self.balance.get(symbol, 0) - amount
+            self.balance[quote] = self.balance.get(quote, 0) + amountQuote
 
         trade = {
             'timestamp': now,
@@ -171,23 +172,23 @@ class TestClient(BitvavoRestClient):
             'price': price,
             'fee': fee,
         }
-        self.__trades = [trade] + self.__trades
+        self.trades = [trade] + self.trades
         return trade
 
     def get_trades(self, market: str = ''):
         trades = []
-        for trade in self.__trades:
+        for trade in self.trades:
             if market and not trade['market'] == market: continue
             trades.append(trade)
         return trades
 
     def get_balance(self, symbol: str = ''):
-        balances = [{'symbol': symbol, 'available': amount} for symbol, amount in self.__balance.items()]
+        balances = [{'symbol': symbol, 'available': amount} for symbol, amount in self.balance.items()]
         if symbol:
             for balance in balances:
                 if balance['symbol'] == symbol: return [balance]
             else:
-                self.__balance[symbol] = 0
+                self.balance[symbol] = 0
                 return [{'symbol': symbol, 'available': 0}]
         else:
             return balances
@@ -196,11 +197,11 @@ class TestClient(BitvavoRestClient):
         return TestClient.current
 
     def step(self):
-        if self.__n+1440 > len(TestClient.__data) - 2:
+        if self.n+1440 > len(TestClient.data) - 2:
             return False
         else:
-            self.__n += 1
-            TestClient.current = TestClient.__data.iloc[:-1].iloc[self.__n:self.__n+1440]
+            self.n += 1
+            TestClient.current = TestClient.data.iloc[:-1].iloc[self.n:self.n+1440]
             return True
 
     def net_worth(self, symbol):

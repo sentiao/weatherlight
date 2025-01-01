@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import indicators
 import provider
+import gdl
 
 
 def load(market, interval):
@@ -27,11 +28,28 @@ def to_date(timestamp):
 
 
 def apply_indicators(dataset):
-    f = 1
+    
     indicator_list = [
-        (indicators.ema, 240*f, 'ema240c'),
-        (indicators.ema, 360*f, 'ema360c'),
-        (indicators.rsi, 25*f, 'rsi'),
+        (indicators.ema, 240, 'ema120c'),
+        (indicators.ema, 240, 'ema240c'),
+        (indicators.ema, 360, 'ema360c'),
+        (indicators.rsi, 10, 'rsi10c'),
+        (indicators.rsi, 25, 'rsi25c'),
+        (indicators.rsi, 50, 'rsi50c'),
+        (indicators.rsi, 100, 'rsi100c'),
+        (indicators.sma, 120, 'sma120c'),
+        (indicators.sma, 240, 'sma240c'),
+        (indicators.sma, 360, 'sma360c'),
+        (indicators.ema, 240, 'ema120v', 'volume'),
+        (indicators.ema, 240, 'ema240v', 'volume'),
+        (indicators.ema, 360, 'ema360v', 'volume'),
+        (indicators.rsi, 10, 'rsi10v', 'volume'),
+        (indicators.rsi, 25, 'rsi25v', 'volume'),
+        (indicators.rsi, 50, 'rsi50v', 'volume'),
+        (indicators.rsi, 100, 'rsi100v', 'volume'),
+        (indicators.sma, 120, 'sma120v', 'volume'),
+        (indicators.sma, 240, 'sma240v', 'volume'),
+        (indicators.sma, 360, 'sma360v', 'volume'),
     ]
 
     for indicator in indicator_list:
@@ -57,8 +75,8 @@ def strat(api: provider.BitvavoRestClient, market: str):
     except:
         history = 0
     
-    buy_signal = (data.iloc[-1].rsi > 70.0) & (data.iloc[-1].close > data.iloc[-1].ema360c) & (btc == 0) & (eur > 10)
-    sell_signal = (btc != 0) & (30 > data.iloc[-1].rsi) & (data.iloc[-1].close > history * 1.0025) & (data.iloc[-1].ema240c > data.iloc[-1].close) | (btc != 0) & (history * 0.95 > data.iloc[-1].close)
+    buy_signal = (data.iloc[-1].rsi25c > 70.0) & (data.iloc[-1].close > data.iloc[-1].ema360c) & (btc == 0) & (eur > 10)
+    sell_signal = (btc != 0) & (30 > data.iloc[-1].rsi25c) & (data.iloc[-1].close > history * 1.0025) & (data.iloc[-1].ema240c > data.iloc[-1].close) | (btc != 0) & (history * 0.95 > data.iloc[-1].close)
 
     if buy_signal and sell_signal:
         buy_signal = False
@@ -71,13 +89,14 @@ def test():
     
     symbol, quote = market.split('-')
 
+    
+    
     # prepare data, based on saved data, or refresh and save
     data = load(market, interval)    
     if not len(data):
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-        data = api.get_data(market=market, interval=interval, number=200)
+        data = api.get_data(market=market, interval=interval, number=2)
         save(data, market, interval)
-
 
     # set up test environment
     value_start = 0
@@ -86,11 +105,25 @@ def test():
     data = apply_indicators(data)
     api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], data=data, balance={'EUR': 1000})
 
+    # set up incubator
+    incubator = gdl.Incubator(size=8, length=2, api_init=provider.TestClient, api_args={
+        'api_key': provider.settings()['key'],
+        'api_secret': provider.settings()['secret']
+    })
+
     # step through test data
     step = True
     while step:
         step = api.step()
         data = api.get_data()
+
+        incubator.init(data=data, balance={'EUR':1000})
+        incubator.develop()
+        print([float(ind['api'].net_worth(symbol)) for ind in incubator.population])
+        incubator.reset()
+
+
+        continue
 
         if not value_start:
             value_start = data.iloc[-1].close
@@ -137,37 +170,13 @@ def status():
 
 
 
-class Test():
-    value = 10
-
-    @classmethod
-    def add(cls):
-        cls.value += 1
-    
-    def __init__(self, i):
-        Test.value = i
-
-
-t1 = Test(100)
-t1.add()
-
-t2 = Test(80)
-t3 = Test(60)
-t2.add()
-t3.add()
-
-print(t1.value, t2.value, t3.value)
-
-
-
-
 if __name__ == '__main__':
     if '--test' in sys.argv: test()
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
         import gdl
 
-        data = [10, 20, 30, 40, 50]
+        
         chromosome = gdl.new_chromosome(length=1)
         function = gdl.to_function(chromosome=chromosome, template='data[{}%5]')
 
