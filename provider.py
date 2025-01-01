@@ -21,7 +21,7 @@ def to_dataset(data):
     data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
     data.insert(0, 'Date', data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S')))
     #data['Date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
-    return data
+    return data.iloc[:-1]
 
 
 class BitvavoRestClient:
@@ -136,12 +136,14 @@ class TestClient(BitvavoRestClient):
     data = None
     current = None
 
-    def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, data=None, balance={}):
+    def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, balance={}):
         super().__init__(api_key, api_secret, access_window)
-        if TestClient.data is None: TestClient.data = data
         self.balance = balance
         self.trades = []
         self.n = -1
+    
+    def set_data(self, data = None):
+        TestClient.data = data
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
@@ -197,11 +199,11 @@ class TestClient(BitvavoRestClient):
         return TestClient.current
 
     def step(self):
-        if self.n+1440 > len(TestClient.data) - 2:
+        if (self.n + 1) >= len(TestClient.data):
             return False
         else:
             self.n += 1
-            TestClient.current = TestClient.data.iloc[:-1].iloc[self.n:self.n+1440]
+            TestClient.current = TestClient.data.iloc[self.n:self.n+1]
             return True
 
     def net_worth(self, symbol):
