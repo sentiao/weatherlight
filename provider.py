@@ -21,7 +21,7 @@ def to_dataset(data):
     data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
     data.insert(0, 'Date', data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S')))
     #data['Date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
-    return data.iloc[:-1]
+    return data.iloc[:-1] # the last frame us often for the current hour, therefore it is incomplete
 
 
 class BitvavoRestClient:
@@ -199,11 +199,11 @@ class TestClient(BitvavoRestClient):
         return TestClient.current
 
     def step(self):
-        if (self.n + 1) >= len(TestClient.data):
+        if (self.n + 2) >= len(TestClient.data):
             return False
         else:
             self.n += 1
-            TestClient.current = TestClient.data.iloc[self.n:self.n+1]
+            TestClient.current = TestClient.data.iloc[self.n:self.n+2]
             return True
 
     def net_worth(self, symbol):
