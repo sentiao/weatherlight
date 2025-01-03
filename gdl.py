@@ -57,7 +57,7 @@ def select(population, number, mode):
 
 
 class Incubator():
-    def __init__(self, api_class: provider.BitvavoRestClient, market: str, data, population_size : int, gene_size : int, mutation_rate : int):
+    def __init__(self, api_class: provider.MultiTestClient, market: str, data, population_size : int, gene_size : int, mutation_rate : int):
         self.api_class = api_class
         self.market = market
         self.data = data
@@ -67,32 +67,27 @@ class Incubator():
 
         self.population = []
         for _ in range(self.population_size):
-            api = self.api_class()
-            api.set_balance(balance={'EUR': 1000.0})
             self.population.append({
-                'api': api,
+                'api': self.api_class(balance={'EUR': 1000.0}),
                 'buy': new_gene(self.gene_size),
                 'sell': new_gene(self.gene_size),
                 'perf': 0.0,
             })
     
-    def step(self):
+    def run(self):
         symbol, quote = self.market.split('-')
         wallet_start = 1000.0
         api = self.api_class()
-        api.set_data(self.data)
+        api.set_data(data=self.data)
         row_length = len(self.data.iloc[-1][5:-1])
         template = f'data.iloc[-1].iloc[5:-1].iloc[__number__ % {row_length}]'
         
         # reset wallets
         for node in self.population: node['api'].set_balance({'EUR': wallet_start})
         
-        # reset step counter
-        api.restart()
-        
-        step = True
+        step_counter, step = -1, True
         while step:
-            step = api.step(1)
+            step_counter, step = api.step(step_counter, 1)
             data = api.get_data()
             for node in self.population:
                 for trade in node['api'].get_trades(self.market):

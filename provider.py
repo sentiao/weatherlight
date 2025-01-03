@@ -17,7 +17,7 @@ def settings():
         return json.load(fh)
 
 
-class BitvavoRestClient:
+class RestClient:
     def __init__(self, api_key: str, api_secret: str, access_window: int = 10000):
         self.api_key = api_key
         self.api_secret = api_secret
@@ -127,21 +127,21 @@ class BitvavoRestClient:
         return signature
 
 
-class TestClient(BitvavoRestClient):
+class TestClient(RestClient):
     data = None
     current = None
     n = -1
 
-    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, balance = {}):
+    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000):
         super().__init__(api_key, api_secret, access_window)
         self.trades = []
-        if balance: self.balance = balance
+        TestClient.self_ref = 'self'
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = TestClient.current.iloc[-1].close
+        price = eval(self.self_ref).current.iloc[-1].close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -188,28 +188,30 @@ class TestClient(BitvavoRestClient):
             return balances
 
     def get_data(self, *args, **kwargs):
-        return TestClient.current
-    
-    #
-    # TestClient-only from here
-    #
+        return eval(self.self_ref).current
 
     def set_data(self, data = None):
-        TestClient.data = data
+        eval(self.self_ref).data = data
     
     def set_balance(self, balance = {}):
         self.balance = balance
 
-    def restart(self):
-        TestClient.n = -1
-
-    def step(self, window_size):
-        if (TestClient.n + window_size) >= len(TestClient.data):
-            return False
+    def step(self, n, window_size):
+        if (n + window_size) >= len(eval(self.self_ref).data):
+            return n, False
         else:
-            TestClient.n += 1
-            TestClient.current = TestClient.data.iloc[TestClient.n : TestClient.n + window_size]
-            return True
+            n += 1
+            eval(self.self_ref).current = eval(self.self_ref).data.iloc[n : n + window_size]
+            return n, True
 
     def net_worth(self, symbol):
-        return float(TestClient.current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+        return float(eval(self.self_ref).current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+
+
+class MultiTestClient(TestClient):
+
+    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, data = None, balance = {}):
+        super().__init__(api_key, api_secret, access_window)
+        if data: MultiTestClient.data = data
+        if balance: self.balance = balance
+        MultiTestClient.self_ref = 'MultiTestClient'
