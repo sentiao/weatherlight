@@ -17,13 +17,6 @@ def settings():
         return json.load(fh)
 
 
-def to_dataset(data):
-    data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-    data.insert(0, 'Date', data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S')))
-    #data['Date'] = data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S'))
-    return data.iloc[:-1] # the last frame us often for the current hour, therefore it is incomplete
-
-
 class BitvavoRestClient:
     def __init__(self, api_key: str, api_secret: str, access_window: int = 10000):
         self.api_key = api_key
@@ -77,7 +70,9 @@ class BitvavoRestClient:
             data = np.unique(data, axis=0)
             data = data[data[:, 0].argsort()]
         
-        return to_dataset(data)
+        data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+        data.insert(0, 'Date', data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S')))
+        return data.iloc[:-1]
 
     def __request(self, endpoint: str, body: dict | None = None, method: str = 'GET'):
         """
@@ -135,15 +130,12 @@ class BitvavoRestClient:
 class TestClient(BitvavoRestClient):
     data = None
     current = None
+    n = -1
 
-    def __init__(self, api_key: str, api_secret: str, access_window: int = 10000, balance={}):
+    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, balance = {}):
         super().__init__(api_key, api_secret, access_window)
-        self.balance = balance
         self.trades = []
-        self.n = -1
-    
-    def set_data(self, data = None):
-        TestClient.data = data
+        if balance: self.balance = balance
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
@@ -197,14 +189,27 @@ class TestClient(BitvavoRestClient):
 
     def get_data(self, *args, **kwargs):
         return TestClient.current
+    
+    #
+    # TestClient-only from here
+    #
 
-    def step(self):
-        if (self.n + 2) >= len(TestClient.data):
+    def set_data(self, data = None):
+        TestClient.data = data
+    
+    def set_balance(self, balance = {}):
+        self.balance = balance
+
+    def restart(self):
+        TestClient.n = -1
+
+    def step(self, window_size):
+        if (TestClient.n + window_size) >= len(TestClient.data):
             return False
         else:
-            self.n += 1
-            TestClient.current = TestClient.data.iloc[self.n:self.n+2]
+            TestClient.n += 1
+            TestClient.current = TestClient.data.iloc[TestClient.n : TestClient.n + window_size]
             return True
 
     def net_worth(self, symbol):
-        return (TestClient.current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+        return float(TestClient.current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])

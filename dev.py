@@ -29,10 +29,19 @@ def to_date(timestamp):
 
 def apply_indicators(data):
     indicator_list = [
-        (indicators.ema, 240, 'ema120c'),
+        (indicators.ema, 120, 'ema120c'),
         (indicators.ema, 240, 'ema240c'),
         (indicators.ema, 360, 'ema360c'),
         (indicators.rsi, 25, 'rsi25c'),
+
+
+        (indicators.ema, 12, 'ema12c'),
+        (indicators.ema, 24, 'ema24c'),
+        (indicators.ema, 36, 'ema36c'),
+        (indicators.rsi, 10, 'rsi10c'),
+        (indicators.atr, 12, 'atr12c'),
+        (indicators.atr, 24, 'atr24c'),
+        (indicators.atr, 36, 'atr36c'),
     ]
 
     for indicator in indicator_list:
@@ -45,14 +54,14 @@ def apply_indicators(data):
     return data
 
 
-def strat1(api: provider.BitvavoRestClient, market: str, indicators: bool):
+def strat(api: provider.BitvavoRestClient, market: str, indicators: bool):
     # indicators: tell strat if it still needs to apply indicators itself, or not
     # since the strat grabs data from api itself and the test environment has preloaded indicators for performance reasons, and live data has not
 
     symbol, quote = market.split('-')
     data = api.get_data(market, '1h', 1440, 1)
     if not indicators: data = apply_indicators(data)
-    eur = api.get_balance(quote)[0]['available']
+    quo = api.get_balance(quote)[0]['available']
     sym = api.get_balance(symbol)[0]['available']
     for trade in api.get_trades(market):
         if trade.get('side', '') != 'buy': continue
@@ -62,7 +71,7 @@ def strat1(api: provider.BitvavoRestClient, market: str, indicators: bool):
         history = 0.0
     
     buy_signal = \
-        (sym == 0) & (eur > 10) & \
+        (sym == 0) & (quo > 10) & \
         (data.iloc[-1].rsi25c > 70.0) & \
         (data.iloc[-1].close > data.iloc[-1].ema360c)
     
@@ -81,50 +90,57 @@ def strat1(api: provider.BitvavoRestClient, market: str, indicators: bool):
 
 def test():
     LOG = False
-
-    market = 'ETH-EUR'
-    interval = '1h'
-    symbol, quote = market.split('-')
     if LOG:
         with open('c:/temp/out.csv', 'w') as fh:
             fh.write('date,price,worth\n')
+
+    # parameters
+    market = 'ETH-EUR'
+    interval = '1h'
+    value_start = 0
+    wallet_start = 1000
+
+
     # prepare data, based on saved data, or refresh and save
+    symbol, quote = market.split('-')
     data = load(market, interval)
     if not len(data):
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
         data = api.get_data(market=market, interval=interval, number=100)
         save(data, market, interval)
+    data = apply_indicators(data)
+
 
     # set up test environment
-    value_start = 0
-    wallet_start = 1000
-    data = apply_indicators(data)
-    api = provider.TestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'], balance={'EUR': wallet_start})
+    api = provider.TestClient()
     api.set_data(data)
-
+    api.set_balance(balance={'EUR': wallet_start})
     # step through test data
     step = True
     while step:
-        step = api.step()
+        step = api.step(1440)
         data = api.get_data()
 
-
+        incubator = gdl.Incubator(api_class=provider.TestClient, market=market, data=data, population_size=12, gene_size=4, mutation_rate=0.05)
+        buy, sell = incubator.step()
+        breakpoint()
+        
         # metrics
         if not value_start:
             value_start = data.iloc[-1].close
         
-        eur = float(api.get_balance(symbol='EUR')[0]['available'])
-        sym = float(api.get_balance(symbol=symbol)[0]['available'])
-        
         # strat
-        buy, sell = strat1(api, market, True)
+        buy, sell = strat(api, market, True)
 
+        # act
+        quo = float(api.get_balance(symbol=quote)[0]['available'])
+        sym = float(api.get_balance(symbol=symbol)[0]['available'])
         if buy:
-            result = api.place_order(market=market, side='buy', order_type='market', amountQuote=eur)
+            result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
         if sell:
             result = api.place_order(market=market, side='sell', order_type='market', amount=sym)
         if buy or sell:
-            print(f'{data.iloc[-1].Date:19s}  EUR={eur:016.2f}  {symbol}={sym:016.4f}  WORTH={api.net_worth(symbol):16.4f}')
+            print(f'{data.iloc[-1].Date:19s}  EUR={quo:016.2f}  {symbol}={sym:016.4f}  WORTH={api.net_worth(symbol):16.4f}')
             
             if LOG:
                 with open('c:/temp/out.csv', 'a') as fh:
@@ -145,15 +161,16 @@ def test():
     print(f'Algo performance:   {algo_performance:.2f}%')
 
 
-def status():
+def status(market : str = 'ETH-EUR'):
+    symbol, quote = market.split('-')
     api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
     # status
     print('--status--')
-    eur = float(api.get_balance('EUR')[0]['available'])
-    print(f'{eur=}')
-    btc = float(api.get_balance('BTC')[0]['available'])
+    quo = float(api.get_balance(quote)[0]['available'])
+    print(f'{quo=}')
+    btc = float(api.get_balance(symbol)[0]['available'])
     print(f'{btc=}')
-    trades = api.get_trades(market='BTC-EUR')[0]
+    trades = api.get_trades(market=market)[0]
     print(f'{trades=}')
 
 
@@ -163,4 +180,15 @@ if __name__ == '__main__':
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
         api = provider.BitvavoRestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        breakpoint()
+    
+    if '--gdl' in sys.argv:
+        gene = gdl.new_gene(8)
+        function = gdl.to_function(gene, f'data.iloc[5:-1][__number__%{4*5}]')
+        print(function)
+        
+        gene = gdl.mutate(gene, 0.02)
+        function = gdl.to_function(gene, f'data.iloc[5:-1][__number__%{4*5}]')
+        print(function)
+        
         breakpoint()
