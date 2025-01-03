@@ -115,7 +115,7 @@ def test_gdl():
     # step through test data
     step_counter, step = -1, True
     while step:
-        step_counter, step = api.step(step_counter, 1000)
+        step_counter, step = api.step(step_counter, 400)
         data = api.get_data()
         data = apply_indicators(data)
         print(f'from {data.iloc[0].Date:19s} to {data.iloc[-1].Date:19s}')
