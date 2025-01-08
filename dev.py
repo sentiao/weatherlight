@@ -31,12 +31,12 @@ def to_date(timestamp):
 def apply_indicators(source):
     data = deepcopy(source)
     indicator_list = [
-        (indicators.ema, 120, 'ema120c'),
+        # old strat
         (indicators.ema, 240, 'ema240c'),
         (indicators.ema, 360, 'ema360c'),
         (indicators.rsi, 25, 'rsi25c'),
 
-
+        # for gdl
         (indicators.ema, 12, 'ema12c'),
         (indicators.ema, 24, 'ema24c'),
         (indicators.ema, 36, 'ema36c'),
@@ -44,6 +44,13 @@ def apply_indicators(source):
         (indicators.atr, 12, 'atr12c'),
         (indicators.atr, 24, 'atr24c'),
         (indicators.atr, 36, 'atr36c'),
+
+        (indicators.ema, 12, 'ema12v', 'volume'),
+        (indicators.ema, 24, 'ema24v', 'volume'),
+        (indicators.ema, 36, 'ema36v', 'volume'),
+        (indicators.ema, 120, 'ema120v', 'volume'),
+        (indicators.ema, 240, 'ema240v', 'volume'),
+        (indicators.ema, 360, 'ema360v', 'volume'),
     ]
 
     for indicator in indicator_list:
@@ -95,7 +102,7 @@ def test_gdl():
 
     # parameters
     market = 'ETH-EUR'
-    interval = '1h'
+    interval = '6h'
     value_start = 0
     wallet_start = 1000
 
@@ -111,6 +118,10 @@ def test_gdl():
     api = provider.TestClient()
     api.set_data(data)
     api.set_balance(balance={'EUR': wallet_start})
+    
+    # set up incubator
+    incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=64, gene_size=4, mutation_rate=0.1)
+    incubation_period = 10
 
     # step through test data
     step_counter, step = -1, True
@@ -118,6 +129,8 @@ def test_gdl():
         step_counter, step = api.step(step_counter, 400)
         data = api.get_data()
         data = apply_indicators(data)
+        incubator.set_data(data=data)
+
         print(f'from {data.iloc[0].Date:19s} to {data.iloc[-1].Date:19s}')
 
         # metrics
@@ -125,11 +138,11 @@ def test_gdl():
             value_start = data.iloc[-1].close
         
         # strat
-        incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, data=data, population_size=12, gene_size=4, mutation_rate=0.05)
         buy, sell = False, False
-        for iteration in range(20):
-            print(f'{iteration=}')
+        while incubation_period:
+            incubation_period -= 1
             buy, sell = incubator.run()
+        incubation_period = 1 # for next run
 
         for trade in api.get_trades(market):
             if trade.get('side', '') != 'buy': continue
@@ -143,7 +156,7 @@ def test_gdl():
         sym = float(api.get_balance(symbol=symbol)[0]['available'])
         
         buy_signal = eval(buy) & (sym == 0) & (quo > 10)
-        sell_signal = (sym != 0) & (history * 0.95 > data.iloc[-1].close) | eval(sell)
+        sell_signal = (sym != 0) & (history * 0.95 > data.iloc[-1].close) | (sym != 0) & eval(sell)
         
         if buy_signal:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)

@@ -134,8 +134,8 @@ class TestClient(RestClient):
 
     def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000):
         super().__init__(api_key, api_secret, access_window)
-        self.trades = []
         TestClient.self_ref = 'self'
+        self.trades = []
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
@@ -210,8 +210,7 @@ class TestClient(RestClient):
 
 class MultiTestClient(TestClient):
 
-    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, data = None, balance = {}):
+    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, balance = {}):
         super().__init__(api_key, api_secret, access_window)
-        if data: MultiTestClient.data = data
-        if balance: self.balance = balance
         MultiTestClient.self_ref = 'MultiTestClient'
+        if balance: self.balance = balance

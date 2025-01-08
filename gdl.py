@@ -57,13 +57,13 @@ def select(population, number, mode):
 
 
 class Incubator():
-    def __init__(self, api_class: provider.MultiTestClient, market: str, data, population_size : int, gene_size : int, mutation_rate : int):
+    def __init__(self, api_class: provider.MultiTestClient, market: str, population_size : int, gene_size : int, mutation_rate : int):
         self.api_class = api_class
         self.market = market
-        self.data = data
         self.population_size = population_size
         self.gene_size = gene_size
         self.mutation_rate = mutation_rate
+        self.wallet_start = 1000.0
 
         self.population = []
         for _ in range(self.population_size):
@@ -73,17 +73,19 @@ class Incubator():
                 'sell': new_gene(self.gene_size),
                 'perf': 0.0,
             })
+
+    def set_data(self, data):
+        self.data = data
+        api = self.api_class()
+        api.set_data(data=self.data)
     
     def run(self):
         symbol, quote = self.market.split('-')
-        wallet_start = 1000.0
-        api = self.api_class()
-        api.set_data(data=self.data)
         row_length = len(self.data.iloc[-1][5:-1])
         template = f'data.iloc[-1].iloc[5:-1].iloc[__number__ % {row_length}]'
-        
-        # reset wallets
-        for node in self.population: node['api'].set_balance({'EUR': wallet_start})
+
+        api = self.api_class()
+        for node in self.population: node['api'].set_balance({'EUR': self.wallet_start})
         
         step_counter, step = -1, True
         while step:
@@ -126,7 +128,7 @@ class Incubator():
         
         
         for node in self.population:
-            if node['perf'] == wallet_start: self.population.remove(node)
+            if node['perf'] == self.wallet_start: self.population.remove(node)
 
         best = select(self.population, 1, 'best')[0]
         worst = select(self.population, 1, 'worst')[0]
@@ -139,14 +141,14 @@ class Incubator():
 
         while self.population_size > len(self.population):
             self.population.append({ # Random Node
-                'api': self.api_class(balance={'EUR': wallet_start}),
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
                 'buy': new_gene(self.gene_size),
                 'sell': new_gene(self.gene_size),
                 'perf': 0.0,
             })
 
             self.population.append({ # Mutated Node
-                'api': self.api_class(balance={'EUR': wallet_start}),
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
                 'buy': mutate(select(candidates, 1, 'best')[0]['buy'], self.mutation_rate),
                 'sell': mutate(select(candidates, 1, 'best')[0]['sell'], self.mutation_rate),
                 'perf': 0.0,
