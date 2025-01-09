@@ -36,6 +36,8 @@ def apply_indicators(source):
         (indicators.ema, 360, 'ema360c'),
         (indicators.rsi, 25, 'rsi25c'),
 
+        (indicators.sma, 1),
+
         # for gdl
         (indicators.ema, 12, 'ema12c'),
         (indicators.ema, 24, 'ema24c'),
@@ -91,8 +93,7 @@ def strat(api: provider.RestClient, market: str, indicators: bool):
         (data.iloc[-1].ema240c > data.iloc[-1].close) | \
         (sym != 0) & (history * 0.95 > data.iloc[-1].close) # stoploss
 
-    if buy_signal and sell_signal:
-        buy_signal = False
+    if buy_signal and sell_signal: sell_signal = False
 
     return buy_signal, sell_signal
 
@@ -102,7 +103,7 @@ def test_gdl():
 
     # parameters
     market = 'ETH-EUR'
-    interval = '6h'
+    interval = '1h'
     value_start = 0
     wallet_start = 1000
 
@@ -120,8 +121,8 @@ def test_gdl():
     api.set_balance(balance={'EUR': wallet_start})
     
     # set up incubator
-    incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=64, gene_size=4, mutation_rate=0.1)
-    incubation_period = 10
+    incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=128, gene_size=6, mutation_rate=0.1)
+    incubation_period = 5
 
     # step through test data
     step_counter, step = -1, True
@@ -154,9 +155,11 @@ def test_gdl():
         # act
         quo = float(api.get_balance(symbol=quote)[0]['available'])
         sym = float(api.get_balance(symbol=symbol)[0]['available'])
-        
+
         buy_signal = eval(buy) & (sym == 0) & (quo > 10)
         sell_signal = (sym != 0) & (history * 0.95 > data.iloc[-1].close) | (sym != 0) & eval(sell)
+
+        if buy_signal and sell_signal: sell_signal = False
         
         if buy_signal:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)

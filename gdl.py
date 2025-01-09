@@ -2,6 +2,7 @@ import random
 import provider
 
 
+ENABLER = 1
 NUMBER = 8
 OPERATOR = 2
 SEPARATOR = 1
@@ -13,6 +14,16 @@ def to_function(gene: str, template: str = '__number__'):
     function = ''
     n = 0
     while True:
+        if n >= len(gene) - 1: break
+
+        enabled = bool(int(gene[n:n + ENABLER], 2))
+        n += ENABLER
+
+        if not enabled:
+            n += NUMBER + OPERATOR + NUMBER + SEPARATOR
+            continue
+            
+
         value_or_ref = bool(int(gene[n], 2))
         left = str(int(gene[n + 1:n + NUMBER], 2))
         if value_or_ref: left = template.replace('__number__', left)
@@ -26,18 +37,19 @@ def to_function(gene: str, template: str = '__number__'):
         if value_or_ref: right = template.replace('__number__', right)
         n += NUMBER
 
-        function += f'({left}{operator}{right})'
-        if len(gene) > n:
-            function += SEPARATOR_MAP[int(gene[n], 2)]
-            n += SEPARATOR
-        else:
-            break
+
+        function += f'({left}{operator}{right}){SEPARATOR_MAP[int(gene[n:n + SEPARATOR], 2)]}'
+        n += SEPARATOR
+        
+    
+    function = function[:-1]
+    if not function: function = 'False'
 
     return function
 
 
 def new_gene(gene_size):
-    return ''.join([str(random.randint(0,1)) for _ in range(NUMBER+OPERATOR+NUMBER+SEPARATOR) for _ in range(gene_size)][:0-SEPARATOR])
+    return ''.join([str(random.randint(0,1)) for _ in range(ENABLER+NUMBER+OPERATOR+NUMBER+SEPARATOR) for _ in range(gene_size)])
 
 
 def mutate(gene, rate):
@@ -112,7 +124,7 @@ class Incubator():
                 buy_signal = eval(buy) & (sym == 0) & (quo > 10)
                 sell_signal = (sym != 0) & (history * 0.95 > data.iloc[-1].close) | eval(sell)
                 
-                if buy and not sell: buy = False
+                if buy_signal and sell_signal: sell_signal = False
 
                 quo = float(node['api'].get_balance(symbol=quote)[0]['available'])
                 sym = float(node['api'].get_balance(symbol=symbol)[0]['available'])
