@@ -1,6 +1,5 @@
 import os
 import requests
-import json
 import hashlib
 import hmac
 import time
@@ -10,11 +9,6 @@ import pandas as pd
 
 
 API_LIMIT_MINIMUM = 100
-
-
-def settings():
-    with open('../settings.json', 'r') as fh:
-        return json.load(fh)
 
 
 class RestClient:

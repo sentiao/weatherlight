@@ -2,6 +2,7 @@ import sys
 import os
 import pickle
 import re
+import json
 from copy import deepcopy
 from time import sleep
 import numpy as np
@@ -9,6 +10,10 @@ import pandas as pd
 import indicators
 import provider
 import gdl
+
+
+with open(sys.argv[1], 'r') as fh:
+    settings= json.load(fh)
 
 
 def load(market, interval):
@@ -194,7 +199,7 @@ def test_gdl():
     symbol, quote = market.split('-')
     data = load(market, interval)
     if not len(data):
-        api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
         data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
 
@@ -291,7 +296,7 @@ def test():
     symbol, quote = market.split('-')
     data = load(market, interval)
     if not len(data):
-        api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
         data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
     data = apply_indicators(data)
@@ -360,7 +365,7 @@ def test():
 
 def status(market : str = 'ETH-EUR'):
     symbol, quote = market.split('-')
-    api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+    api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
     # status
     print('--status--')
     quo = float(api.get_balance(quote)[0]['available'])
@@ -380,7 +385,7 @@ def live():
 
     symbol, quote = market.split('-')
     semaphore = None
-    api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+    api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
 
     while True:
 
@@ -420,7 +425,7 @@ if __name__ == '__main__':
     if '--test_gdl' in sys.argv: test_gdl()
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
-        api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+        api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
         data = api.get_data('ETH-EUR', '1h')
         testapi = provider.TestClient()
         testapi.set_data(data)
