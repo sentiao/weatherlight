@@ -54,11 +54,15 @@ class RestClient:
             return self.__request(endpoint=f'/balance', method='GET')
 
     def get_data(self, market, interval, amount=1440, number=1):
+        if number == -1: number = 999999
+        h_start, h_end = 0, 0
         data=np.array([])
         for n in range(number):
             if len(data):
                 end = data[0][0]
                 start = end - (24*60*60*60*999)
+                if start == h_start and end == h_end: break
+                h_start, h_end = start, end
                 response = self.__request(endpoint=f'/{market}/candles?interval={interval}&limit={amount}&start={start}&end={end}', method='GET')
             else:
                 response = self.__request(endpoint=f'/{market}/candles?interval={interval}&limit={amount}', method='GET')

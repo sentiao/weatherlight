@@ -3,6 +3,7 @@ import os
 import pickle
 import re
 from copy import deepcopy
+from time import sleep
 import numpy as np
 import pandas as pd
 import indicators
@@ -29,30 +30,31 @@ def to_date(timestamp):
 
 
 def apply_indicators(source):
+    print('Applying indicators, ...', end='\r')
     data = deepcopy(source)
     indicator_list = [
-        # old strat
-        (indicators.ema, 240, 'ema240c'),
-        (indicators.ema, 360, 'ema360c'),
-        (indicators.rsi, 25, 'rsi25c'),
-
         (indicators.sma, 1),
+        
+        # strat 1
+        (indicators.ema, 240, 'ema240c'), #1h
+        (indicators.ema, 360, 'ema360c'), #1h
+        (indicators.rsi, 25, 'rsi25c'), # 1h
+
+        # strat 2
+        (indicators.ema, 24, 'ema24c'), #6h
+        (indicators.ema, 36, 'ema36c'), #6
+        (indicators.rsi, 10, 'rsi10c'), #6h
+        
+        # strat 3
+        (indicators.ema, 144, 'ema144c'),
+        (indicators.ema, 216, 'ema216c'),
+        (indicators.rsi, 60, 'rsi60c'),
 
         # for gdl
         (indicators.ema, 12, 'ema12c'),
-        (indicators.ema, 24, 'ema24c'),
-        (indicators.ema, 36, 'ema36c'),
-        (indicators.rsi, 10, 'rsi10c'),
         (indicators.atr, 12, 'atr12c'),
         (indicators.atr, 24, 'atr24c'),
         (indicators.atr, 36, 'atr36c'),
-
-        (indicators.ema, 12, 'ema12v', 'volume'),
-        (indicators.ema, 24, 'ema24v', 'volume'),
-        (indicators.ema, 36, 'ema36v', 'volume'),
-        (indicators.ema, 120, 'ema120v', 'volume'),
-        (indicators.ema, 240, 'ema240v', 'volume'),
-        (indicators.ema, 360, 'ema360v', 'volume'),
     ]
 
     for indicator in indicator_list:
@@ -62,10 +64,11 @@ def apply_indicators(source):
 
     data.dropna(axis=0, inplace=True)
     data = data.reset_index(drop=True)
+    print('Applying indicators, done.')
     return data
 
 
-def strat(api: provider.RestClient, market: str, indicators: bool):
+def strat1(api: provider.RestClient, market: str, indicators: bool): # tuned for 1h
     # indicators: tell strat if it still needs to apply indicators itself, or not
     # since the strat grabs data from api itself and the test environment has preloaded indicators for performance reasons, and live data has not
 
@@ -99,11 +102,91 @@ def strat(api: provider.RestClient, market: str, indicators: bool):
 
 
 
+def strat2(api: provider.RestClient, market: str, indicators: bool): # tuned for 6h
+    # indicators: tell strat if it still needs to apply indicators itself, or not
+    # since the strat grabs data from api itself and the test environment has preloaded indicators for performance reasons, and live data has not
+
+    symbol, quote = market.split('-')
+    data = api.get_data(market, '1h', 1440, 1)
+    if not indicators: data = apply_indicators(data)
+    quo = float(api.get_balance(quote)[0]['available'])
+    sym = float(api.get_balance(symbol)[0]['available'])
+    for trade in api.get_trades(market):
+        if trade.get('side', '') != 'buy': continue
+        history = float(trade.get('price', 0.0))
+        break
+    else:
+        history = 0.0
+    
+    buy_signal = all([
+        (sym == 0) & (quo > 10),
+        (data.iloc[-1].rsi10c > 70.0),
+        (data.iloc[-1].close > data.iloc[-1].ema36c)
+    ])
+    
+    sell_signal = any([
+        all([
+            (sym != 0),
+            (30 > data.iloc[-1].rsi10c),
+            (data.iloc[-1].close > history * 1.0025),
+            (data.iloc[-1].ema24c > data.iloc[-1].close)
+        ]),
+        all([
+            (sym != 0) & (history * 0.97 > data.iloc[-1].close) # stoploss
+        ])
+    ])
+
+    if buy_signal and sell_signal: sell_signal = False
+
+    return buy_signal, sell_signal
+
+
+
+def strat3(api: provider.RestClient, market: str, indicators: bool):
+    # indicators: tell strat if it still needs to apply indicators itself, or not
+    # since the strat grabs data from api itself and the test environment has preloaded indicators for performance reasons, and live data has not
+
+    symbol, quote = market.split('-')
+    data = api.get_data(market, '1h', 1440, 1)
+    if not indicators: data = apply_indicators(data)
+    quo = float(api.get_balance(quote)[0]['available'])
+    sym = float(api.get_balance(symbol)[0]['available'])
+    for trade in api.get_trades(market):
+        if trade.get('side', '') != 'buy': continue
+        history = float(trade.get('price', 0.0))
+        break
+    else:
+        history = 0.0
+    
+    buy_signal = all([
+        (sym == 0) & (quo > 10),
+        (data.iloc[-1].rsi60c > 70.0),
+        (data.iloc[-1].close > data.iloc[-1].ema216c)
+    ])
+    
+    sell_signal = any([
+        all([
+            (sym != 0),
+            (30 > data.iloc[-1].rsi60c),
+            (data.iloc[-1].close > history * 1.0025),
+            (data.iloc[-1].ema144c > data.iloc[-1].close)
+        ]),
+        all([
+            (sym != 0) & (history * 0.97 > data.iloc[-1].close) # stoploss
+        ])
+    ])
+
+    if buy_signal and sell_signal: sell_signal = False
+
+    return buy_signal, sell_signal
+
+
+
 def test_gdl():
 
     # parameters
     market = 'ETH-EUR'
-    interval = '1h'
+    interval = '1d'
     value_start = 0
     wallet_start = 1000
 
@@ -112,7 +195,7 @@ def test_gdl():
     data = load(market, interval)
     if not len(data):
         api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-        data = api.get_data(market=market, interval=interval, number=100)
+        data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
 
     # set up test environment
@@ -121,13 +204,13 @@ def test_gdl():
     api.set_balance(balance={'EUR': wallet_start})
     
     # set up incubator
-    incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=128, gene_size=6, mutation_rate=0.1)
-    incubation_period = 5
+    incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=100, gene_size=8, mutation_rate=0.02)
+    incubation_period = 100
 
     # step through test data
     step_counter, step = -1, True
     while step:
-        step_counter, step = api.step(step_counter, 400)
+        step_counter, step = api.step(step_counter, 120)
         data = api.get_data()
         data = apply_indicators(data)
         incubator.set_data(data=data)
@@ -188,7 +271,10 @@ def test_gdl():
 
 
 def test():
+    strategy = strat1
+    
     LOG = False
+    ADD = False
     if LOG:
         with open('c:/temp/out.csv', 'w') as fh:
             fh.write('date,price,worth\n')
@@ -198,6 +284,7 @@ def test():
     interval = '1h'
     value_start = 0
     wallet_start = 1000
+    spent = wallet_start
 
 
     # prepare data, based on saved data, or refresh and save
@@ -205,7 +292,7 @@ def test():
     data = load(market, interval)
     if not len(data):
         api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
-        data = api.get_data(market=market, interval=interval, number=100)
+        data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
     data = apply_indicators(data)
 
@@ -214,6 +301,9 @@ def test():
     api = provider.TestClient()
     api.set_data(data)
     api.set_balance(balance={'EUR': wallet_start})
+    
+    h_month = 0
+
     # step through test data
     step_counter, step = -1, True
     while step:
@@ -224,8 +314,8 @@ def test():
         if not value_start:
             value_start = data.iloc[-1].close
         
-        # strat
-        buy, sell = strat(api, market, True)
+        # strategy
+        buy, sell = strategy(api, market, True)
 
         # act
         quo = float(api.get_balance(symbol=quote)[0]['available'])
@@ -234,8 +324,19 @@ def test():
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
         if sell:
             result = api.place_order(market=market, side='sell', order_type='market', amount=sym)
+
+            if ADD:
+                # Monthly balance increase
+                month = data.iloc[-1].Date.split('-')[1]
+                if month != h_month:
+                    spent += 1000.0
+                    api.set_balance(balance={'EUR': api.get_balance('EUR')[0]['available'] + 1000.0})
+                    h_month = month
+        
         if buy or sell:
-            print(f'{data.iloc[-1].Date:19s}  EUR={quo:016.2f}  {symbol}={sym:016.4f}  WORTH={api.net_worth(symbol):16.4f}')
+            if buy: print('BUY ', end=' ')
+            if sell: print('SELL', end=' ')
+            print(f'{data.iloc[-1].Date:19s} {quo:16.2f} EUR  {sym:16.4f} {symbol}  {api.net_worth(symbol):16.4f} EUR worth')
             
             if LOG:
                 with open('c:/temp/out.csv', 'a') as fh:
@@ -244,7 +345,7 @@ def test():
     # metrics
     value_end = data.iloc[-1].close
     market_performance = ((value_end/value_start)-1)*100
-    wallet_end = api.net_worth(symbol)
+    wallet_end = api.net_worth(symbol) - spent
     algo_performance = ((wallet_end/wallet_start)-1)*100
 
     print(f'Value start:        {value_start:.2f} EUR')
@@ -252,6 +353,7 @@ def test():
     print(f'Market performance: {market_performance:.2f}%')
     print()
     print(f'Wallet start:       {wallet_start:.2f} EUR')
+    print(f'Spent:              {spent:.2f} EUR')
     print(f'Wallet end:         {wallet_end:.2f} EUR')
     print(f'Algo performance:   {algo_performance:.2f}%')
 
@@ -268,6 +370,49 @@ def status(market : str = 'ETH-EUR'):
     trades = api.get_trades(market=market)[0]
     print(f'{trades=}')
 
+
+
+def live():
+    # parameters
+    market = 'ETH-EUR'
+    interval = '6h'
+    strategy = strat2
+
+    symbol, quote = market.split('-')
+    semaphore = None
+    api = provider.RestClient(api_key=provider.settings()['key'], api_secret=provider.settings()['secret'])
+
+    while True:
+
+        # get data
+        data = api.get_data(market=market, interval=interval, number=1)
+
+        # semaphore
+        if data.iloc[-1].Date == semaphore:
+            sleep(20)
+            continue
+        else:
+            semaphore = data.iloc[-1].Date
+
+        # report
+        print(semaphore)
+
+        # strategy
+        buy, sell = strategy(api, market, False)
+
+        # act
+        quo = float(api.get_balance(symbol=quote)[0]['available'])
+        sym = float(api.get_balance(symbol=symbol)[0]['available'])
+        if buy:
+            result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
+        if sell:
+            result = api.place_order(market=market, side='sell', order_type='market', amount=sym)
+
+        # report
+        if buy or sell:
+            if buy: print('BUY ', end=' ')
+            if sell: print('SELL', end=' ')
+            print(f'{data.iloc[-1].Date:19s} {quo:16.2f} EUR  {sym:16.4f} {symbol}')
 
 
 if __name__ == '__main__':
@@ -293,3 +438,5 @@ if __name__ == '__main__':
         print(function)
         
         breakpoint()
+    
+    if '--live' in sys.argv: live()
