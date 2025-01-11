@@ -75,8 +75,8 @@ def strat1(api: provider.RestClient, market: str, indicators: bool): # tuned for
     symbol, quote = market.split('-')
     data = api.get_data(market, '1h', 1440, 1)
     if not indicators: data = apply_indicators(data)
-    quo = api.get_balance(quote)[0]['available']
-    sym = api.get_balance(symbol)[0]['available']
+    quo = float(api.get_balance(quote)[0]['available'])
+    sym = float(api.get_balance(symbol)[0]['available'])
     for trade in api.get_trades(market):
         if trade.get('side', '') != 'buy': continue
         history = trade.get('price', 0.0)
