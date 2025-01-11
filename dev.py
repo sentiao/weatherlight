@@ -375,8 +375,8 @@ def status(market : str = 'ETH-EUR'):
 def live():
     # parameters
     market = 'ETH-EUR'
-    interval = '6h'
-    strategy = strat2
+    interval = '1h'
+    strategy = strat1
 
     symbol, quote = market.split('-')
     semaphore = None

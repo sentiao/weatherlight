@@ -170,6 +170,6 @@ class Incubator():
         while len(self.population) > self.population_size:
             self.population.remove(select(self.population, 1, 'worst')[0])
         
-        print(f'{best['perf']=}')
+        print(f'{best["perf"]=}')
 
         return to_function(gene=best['buy'], template=template), to_function(gene=best['sell'], template=template)
