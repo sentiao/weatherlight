@@ -84,7 +84,7 @@ def strat1(api: provider.RestClient, market: str, indicators: bool): # tuned for
     sym = float(api.get_balance(symbol)[0]['available'])
     for trade in api.get_trades(market):
         if trade.get('side', '') != 'buy': continue
-        history = trade.get('price', 0.0)
+        history = float(trade.get('price', 0.0))
         break
     else:
         history = 0.0
