@@ -1,5 +1,9 @@
+import os
 import random
 import provider
+
+
+LOG = True
 
 
 ENABLER = 1
@@ -9,8 +13,11 @@ SEPARATOR = 1
 OPERATOR_MAP = ('==', '!=', '>', '<')
 SEPARATOR_MAP = ('|', '&')
 
+GENE = ENABLER + NUMBER + NUMBER + OPERATOR + NUMBER + NUMBER + SEPARATOR
+
 
 def to_function(gene: str, template: str = '__number__'):
+    f = 0.015748031496062992
     function = ''
     n = 0
     while True:
@@ -20,13 +27,17 @@ def to_function(gene: str, template: str = '__number__'):
         n += ENABLER
 
         if not enabled:
-            n += NUMBER + OPERATOR + NUMBER + SEPARATOR
+            n += (GENE - ENABLER)
             continue
-            
 
         value_or_ref = bool(int(gene[n], 2))
         left = str(int(gene[n + 1:n + NUMBER], 2))
         if value_or_ref: left = template.replace('__number__', left)
+        n += NUMBER
+
+        enabled = bool(int(gene[n], 2))
+        left_factor = str((int(gene[n + 1:n + NUMBER], 2) - 63.5) * f)
+        if enabled: left += f'*{left_factor}'
         n += NUMBER
 
         operator = OPERATOR_MAP[int(gene[n:n + OPERATOR], 2)]
@@ -37,8 +48,13 @@ def to_function(gene: str, template: str = '__number__'):
         if value_or_ref: right = template.replace('__number__', right)
         n += NUMBER
 
+        enabled = bool(int(gene[n], 2))
+        right_factor = str((int(gene[n + 1:n + NUMBER], 2) - 63.5) * f)
+        if enabled: right += f'*{right_factor}'
+        n += NUMBER
 
-        function += f'({left}{operator}{right}){SEPARATOR_MAP[int(gene[n:n + SEPARATOR], 2)]}'
+
+        function += f'(({left}){operator}({right})){SEPARATOR_MAP[int(gene[n:n + SEPARATOR], 2)]}'
         n += SEPARATOR
         
     
@@ -49,7 +65,7 @@ def to_function(gene: str, template: str = '__number__'):
 
 
 def new_gene(gene_size):
-    return ''.join([str(random.randint(0,1)) for _ in range(ENABLER+NUMBER+OPERATOR+NUMBER+SEPARATOR) for _ in range(gene_size)])
+    return ''.join([str(random.randint(0,1)) for _ in range(GENE) for _ in range(gene_size)])
 
 
 def mutate(gene, rate):
@@ -60,12 +76,28 @@ def mutate(gene, rate):
     return ''.join(subject)
 
 
-def select(population, number, mode):
+def dbz(left, right):
+    try:
+        return left / right
+    except ZeroDivisionError:
+        return 0
+
+
+def select_simple(population, number, mode):
     if mode == 'best':
         return sorted(population, key=lambda n: n['perf'])[0-number:]
 
     if mode == 'worst':
         return sorted(population, key=lambda n: n['perf'])[0:number]
+
+def select(population, number, mode):
+    if mode == 'best':
+        probabilities = [p['perf'] / len(population) for p in population]
+    if mode == 'worst':
+        probabilities = [dbz(len(population), p['perf']) for p in population]
+    candidates = [random.choices(population, probabilities)[0] for _ in range(number)]
+
+    return candidates
 
 
 class Incubator():
@@ -136,19 +168,26 @@ class Incubator():
                 
                 node['perf'] = node['api'].net_worth(symbol)
                 
-            print(f'{api.get_data().iloc[-1].Date:19s}', end='\r')
+            if LOG: print(f'{api.get_data().iloc[-1].Date:19s}', end='\r')
         
         
+        # penalize passives
         for node in self.population:
-            if node['perf'] == self.wallet_start: self.population.remove(node)
+            if node['perf'] == self.wallet_start: node['perf'] = self.wallet_start / 2
 
-        best = select(self.population, 1, 'best')[0]
-        worst = select(self.population, 1, 'worst')[0]
+        # select absolute best, to report and return
+        best = select_simple(self.population, 1, 'best')[0]
+        fn = 'C:/Temp/best.txt'
+        if not os.path.exists(fn):
+            with open(fn, 'w') as fh: fh.write('perf,buy,sell\n')
+        with open(fn, 'a') as fh:
+            fh.write(f'{best["perf"]}, {best["buy_function"]}, {best["sell_function"]}\n')
 
-        # remove unhealthy nodes
+        # remove unhealthy third
         while len(self.population) > int(self.population_size / 3):
-            self.population.remove(select(self.population, 1, 'worst')[0])  
+            self.population.remove(select_simple(self.population, 1, 'worst')[0])  
 
+        # select most healthy third
         candidates = select(self.population, int(self.population_size / 2) or 1, 'best')
 
         while self.population_size > len(self.population):
@@ -159,10 +198,19 @@ class Incubator():
                 'perf': 0.0,
             })
 
+            mother, father = random.sample(candidates, 2)
             self.population.append({ # Mutated Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
-                'buy': mutate(select(candidates, 1, 'best')[0]['buy'], self.mutation_rate),
-                'sell': mutate(select(candidates, 1, 'best')[0]['sell'], self.mutation_rate),
+                'buy': father['buy'],
+                'sell': mother['sell'],
+                'perf': 0.0,
+            })
+            
+            mother, father = random.sample(candidates, 2)
+            self.population.append({ # Mutated Node
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
+                'buy': mutate(father['buy'], self.mutation_rate),
+                'sell': mutate(mother['sell'], self.mutation_rate),
                 'perf': 0.0,
             })
 
@@ -170,6 +218,6 @@ class Incubator():
         while len(self.population) > self.population_size:
             self.population.remove(select(self.population, 1, 'worst')[0])
         
-        print(f'{best["perf"]=}')
+        if LOG: print(f'{best["perf"]=}')
 
         return to_function(gene=best['buy'], template=template), to_function(gene=best['sell'], template=template)
