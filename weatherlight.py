@@ -111,17 +111,20 @@ def test_gdl():
 
     # parameters
     market = 'ETH-EUR'
-    interval = '1h'
+    interval = '1d'
     value_start = 0
     wallet_start = 1000
 
     # prepare data, based on saved data, or refresh and save
     symbol, quote = market.split('-')
     data = load(market, interval)
+    data = []
     if not len(data):
         api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
         data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
+
+    print(data)
 
     # set up test environment
     api = provider.TestClient()
@@ -131,7 +134,7 @@ def test_gdl():
     # set up incubator
     incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=32, gene_size=8, mutation_rate=0.02)
     incubation_period = 20
-    window_size = 7200
+    window_size = 720
 
     # step through test data
     step_counter, step = -1, True

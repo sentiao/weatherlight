@@ -1,6 +1,8 @@
 import os
 import random
 import provider
+from multiprocessing import Pool, Process, Value, Array
+from copy import deepcopy
 
 
 LOG = True
@@ -135,14 +137,15 @@ class Incubator():
         while step:
             step_counter, step = api.step(step_counter, 1)
             data = api.get_data()
+            
             for node in self.population:
+
                 for trade in node['api'].get_trades(self.market):
                     if trade.get('side', '') != 'buy': continue
                     history = trade.get('price', 0.0)
                     break
                 else:
                     history = 0.0
-
                 
                 quo = node['api'].get_balance(quote)[0]['available']
                 sym = node['api'].get_balance(symbol)[0]['available']

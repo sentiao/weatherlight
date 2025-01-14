@@ -132,14 +132,14 @@ class TestClient(RestClient):
 
     def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000):
         super().__init__(api_key, api_secret, access_window)
-        TestClient.self_ref = 'self'
+        self.instance = self
         self.trades = []
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = eval(self.self_ref).current.iloc[-1].close
+        price = self.instance.current.iloc[-1].close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -186,29 +186,29 @@ class TestClient(RestClient):
             return balances
 
     def get_data(self, *args, **kwargs):
-        return eval(self.self_ref).current
+        return self.instance.current
 
     def set_data(self, data = None):
-        eval(self.self_ref).data = data
+        self.instance.data = data
     
     def set_balance(self, balance = {}):
         self.balance = balance
 
     def step(self, n, window_size):
-        if (n + window_size) >= len(eval(self.self_ref).data):
+        if (n + window_size) >= len(self.instance.data):
             return n, False
         else:
             n += 1
-            eval(self.self_ref).current = eval(self.self_ref).data.iloc[n : n + window_size]
+            self.instance.current = self.instance.data.iloc[n : n + window_size]
             return n, True
 
     def net_worth(self, symbol):
-        return float(eval(self.self_ref).current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+        return float(self.instance.current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
 
 
 class MultiTestClient(TestClient):
 
     def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, balance = {}):
         super().__init__(api_key, api_secret, access_window)
-        MultiTestClient.self_ref = 'MultiTestClient'
+        self.instance = MultiTestClient
         if balance: self.balance = balance
