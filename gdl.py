@@ -127,8 +127,8 @@ class Incubator():
     
     def run(self):
         symbol, quote = self.market.split('-')
-        row_length = len(self.data.iloc[-1][5:-1])
-        template = f'data.iloc[-1].iloc[5:-1].iloc[__number__ % {row_length}]'
+        row_length = len(self.data.iloc[-1][5:])
+        template = f'data.iloc[-1].iloc[5:].iloc[__number__ % {row_length}]'
 
         api = self.api_class()
         for node in self.population: node['api'].set_balance({'EUR': self.wallet_start})

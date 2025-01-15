@@ -81,8 +81,12 @@ def strategy(api: provider.RestClient, market: str, indicators: bool): # tuned f
     symbol, quote = market.split('-')
     data = api.get_data(market, '1h', 1440, 1)
     if not indicators: data = apply_indicators(data)
-    quo = float(api.get_balance(quote)[0]['available'])
-    sym = float(api.get_balance(symbol)[0]['available'])
+    
+    try: quo = float(api.get_balance(quote)[0]['available'])
+    except: quo = 0.0
+    try: sym = float(api.get_balance(symbol)[0]['available'])
+    except: sym = 0.0
+
     for trade in api.get_trades(market):
         if trade.get('side', '') != 'buy': continue
         history = float(trade.get('price', 0.0))
@@ -123,8 +127,6 @@ def test_gdl():
         api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
         data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
-
-    print(data)
 
     # set up test environment
     api = provider.TestClient()
@@ -327,8 +329,11 @@ def live():
         buy, sell = strategy(api, market, False)
 
         # act
-        quo = float(api.get_balance(symbol=quote)[0]['available'])
-        sym = float(api.get_balance(symbol=symbol)[0]['available'])
+        try: quo = float(api.get_balance(symbol=quote)[0]['available'])
+        except: quo = 0.0
+        try: sym = float(api.get_balance(symbol=symbol)[0]['available'])
+        except: quo = 0.0
+        
         if buy:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
         if sell:
@@ -353,16 +358,4 @@ if __name__ == '__main__':
         testapi.step(0, 1)
         multitestapi = provider.MultiTestClient()
         breakpoint()
-    
-    if '--gdl' in sys.argv:
-        gene = gdl.new_gene(8)
-        function = gdl.to_function(gene, f'data.iloc[5:-1][__number__%{4*5}]')
-        print(function)
-        
-        gene = gdl.mutate(gene, 0.02)
-        function = gdl.to_function(gene, f'data.iloc[5:-1][__number__%{4*5}]')
-        print(function)
-        
-        breakpoint()
-    
     if '--live' in sys.argv: live()
