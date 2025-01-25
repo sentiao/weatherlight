@@ -11,7 +11,7 @@ import provider
 import gdl
 
 
-LOG = True
+LOG = False
 
 
 with open(sys.argv[1], 'r') as fh:
@@ -341,6 +341,7 @@ def live():
 
 
 if __name__ == '__main__':
+    if '--log' in sys.argv: LOG = True
     if '--test' in sys.argv: test()
     if '--test_gdl' in sys.argv: test_gdl()
     if '--status' in sys.argv: status()
