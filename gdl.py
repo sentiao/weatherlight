@@ -1,8 +1,7 @@
 import os
 import random
 import provider
-from multiprocessing import Pool, Process, Value, Array
-from copy import deepcopy
+from threading import Thread
 
 
 LOG = True
@@ -102,6 +101,41 @@ def select(population, number, mode):
     return candidates
 
 
+def run_node(node, market, template, data):
+    symbol, quote = market.split('-')
+
+    for trade in node['api'].get_trades(market):
+        if trade.get('side', '') != 'buy': continue
+        history = trade.get('price', 0.0)
+        break
+    else:
+        history = 0.0
+    
+    quo = node['api'].get_balance(quote)[0]['available']
+    sym = node['api'].get_balance(symbol)[0]['available']
+
+    buy = to_function(gene=node['buy'], template=template)
+    sell = to_function(gene=node['sell'], template=template)
+
+    node['buy_function'] = buy
+    node['sell_function'] = sell
+    
+    buy_signal = eval(buy) & (sym == 0) & (quo > 10)
+    sell_signal = (sym != 0) & (history * 0.95 > data[-1, 4]) | eval(sell)
+    
+    if buy_signal and sell_signal: sell_signal = False
+
+    quo = float(node['api'].get_balance(symbol=quote)[0]['available'])
+    sym = float(node['api'].get_balance(symbol=symbol)[0]['available'])
+
+    if buy_signal:
+        result = node['api'].place_order(market=market, side='buy', order_type='market', amountQuote=quo)
+    if sell_signal:
+        result = node['api'].place_order(market=market, side='sell', order_type='market', amount=sym)
+    
+    node['perf'] = node['api'].net_worth(symbol)
+
+
 class Incubator():
     def __init__(self, api_class: provider.MultiTestClient, market: str, population_size : int, gene_size : int, mutation_rate : int):
         self.api_class = api_class
@@ -126,9 +160,8 @@ class Incubator():
         api.set_data(data=self.data)
     
     def run(self):
-        symbol, quote = self.market.split('-')
-        row_length = len(self.data.iloc[-1][5:])
-        template = f'data.iloc[-1].iloc[5:].iloc[__number__ % {row_length}]'
+        row_length = len(self.data[-1]) - 1
+        template = f'data[-1, (__number__ % {row_length})+1]'
 
         api = self.api_class()
         for node in self.population: node['api'].set_balance({'EUR': self.wallet_start})
@@ -138,41 +171,16 @@ class Incubator():
             step_counter, step = api.step(step_counter, 1)
             data = api.get_data()
             
+            threads = []
+
             for node in self.population:
-
-                for trade in node['api'].get_trades(self.market):
-                    if trade.get('side', '') != 'buy': continue
-                    history = trade.get('price', 0.0)
-                    break
-                else:
-                    history = 0.0
+                thread = Thread(target=run_node, args=(node, self.market, template, data,))
+                threads.append(thread)
+                thread.start()
+            
+            for thread in threads: thread.join()
                 
-                quo = node['api'].get_balance(quote)[0]['available']
-                sym = node['api'].get_balance(symbol)[0]['available']
-
-                buy = to_function(gene=node['buy'], template=template)
-                sell = to_function(gene=node['sell'], template=template)
-
-                node['buy_function'] = buy
-                node['sell_function'] = sell
-                
-                buy_signal = eval(buy) & (sym == 0) & (quo > 10)
-                sell_signal = (sym != 0) & (history * 0.95 > data.iloc[-1].close) | eval(sell)
-                
-                if buy_signal and sell_signal: sell_signal = False
-
-                quo = float(node['api'].get_balance(symbol=quote)[0]['available'])
-                sym = float(node['api'].get_balance(symbol=symbol)[0]['available'])
-
-                if buy_signal:
-                    result = node['api'].place_order(market=self.market, side='buy', order_type='market', amountQuote=quo)
-                if sell_signal:
-                    result = node['api'].place_order(market=self.market, side='sell', order_type='market', amount=sym)
-                
-                node['perf'] = node['api'].net_worth(symbol)
-                
-            if LOG: print(f'{api.get_data().iloc[-1].Date:19s}', end='\r')
-        
+            if LOG: print(f'{provider.to_date(api.get_data()[-1, 0]):19s}', end='\r')
         
         # penalize passives
         for node in self.population:

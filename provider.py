@@ -5,10 +5,12 @@ import hmac
 import time
 from datetime import datetime
 import numpy as np
-import pandas as pd
 
 
 API_LIMIT_MINIMUM = 100
+
+
+def to_date(timestamp): return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
 
 
 class RestClient:
@@ -50,27 +52,28 @@ class RestClient:
     def get_data(self, market, interval, amount=1440, number=1):
         if number == -1: number = 999999
         h_start, h_end = 0, 0
-        data=np.array([])
+        
+        data = np.array([])
         for n in range(number):
             if len(data):
-                end = data[0][0]
-                start = end - (24*60*60*60*999)
+                end = int(data[-1][0])
+                start = int(end - (24*60*60*60*999))
                 if start == h_start and end == h_end: break
                 h_start, h_end = start, end
                 response = self.__request(endpoint=f'/{market}/candles?interval={interval}&limit={amount}&start={start}&end={end}', method='GET')
             else:
                 response = self.__request(endpoint=f'/{market}/candles?interval={interval}&limit={amount}', method='GET')
             
-            response.reverse()
             new_data = np.array(response).astype(float)
-            if data.size > 0: data = np.concatenate((new_data, data))
-            else: data = new_data
-            data = np.unique(data, axis=0)
-            data = data[data[:, 0].argsort()]
+            if len(data):
+                data = np.concatenate((data, new_data))
+            else:
+                data = new_data
+
+        data = np.unique(data, axis=0)
+        data = data[data[:, 0].argsort()]
         
-        data = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-        data.insert(0, 'Date', data['date'].apply(lambda n: datetime.fromtimestamp(n/1000).strftime('%Y-%m-%d %H:%M:%S')))
-        return data.iloc[:-1]
+        return data[:-1]
 
     def __request(self, endpoint: str, body: dict | None = None, method: str = 'GET'):
         """
@@ -139,7 +142,7 @@ class TestClient(RestClient):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = self.instance.current.iloc[-1].close
+        price = self.instance.current[-1][4] # close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -199,11 +202,11 @@ class TestClient(RestClient):
             return n, False
         else:
             n += 1
-            self.instance.current = self.instance.data.iloc[n : n + window_size]
+            self.instance.current = self.instance.data[n : n + window_size]
             return n, True
 
     def net_worth(self, symbol):
-        return float(self.instance.current.iloc[-1].close * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+        return float(self.instance.current[-1][4] * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
 
 
 class MultiTestClient(TestClient):

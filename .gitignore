@@ -1,1 +1,6 @@
 __pycache__
+settings.json
+data
+go.mod
+go.sum
+*.go
