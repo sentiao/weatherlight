@@ -4,22 +4,21 @@ import provider
 from threading import Thread
 
 
-LOG = True
-
-
 ENABLER = 1
 NUMBER = 8
 OPERATOR = 2
 SEPARATOR = 1
 OPERATOR_MAP = ('==', '!=', '>', '<')
 SEPARATOR_MAP = ('|', '&')
+STOPLOSS = 4
 
-GENE = ENABLER + NUMBER + NUMBER + OPERATOR + NUMBER + NUMBER + SEPARATOR
+GENE = ENABLER + NUMBER + NUMBER + OPERATOR + NUMBER + NUMBER + SEPARATOR + STOPLOSS
 
 
 def to_function(gene: str, template: str = '__number__'):
     f = 0.015748031496062992
     function = ''
+    stoploss = 1.0
     n = 0
     while True:
         if n >= len(gene) - 1: break
@@ -54,15 +53,16 @@ def to_function(gene: str, template: str = '__number__'):
         if enabled: right += f'*{right_factor}'
         n += NUMBER
 
-
         function += f'(({left}){operator}({right})){SEPARATOR_MAP[int(gene[n:n + SEPARATOR], 2)]}'
         n += SEPARATOR
+
+        stoploss = 1.0 - ( int(gene[n:n + STOPLOSS], 2) / 100 )
+        n += STOPLOSS
         
     
     function = function[:-1]
     if not function: function = 'False'
-
-    return function
+    return function, stoploss
 
 
 def new_gene(gene_size):
@@ -114,14 +114,14 @@ def run_node(node, market, template, data):
     quo = node['api'].get_balance(quote)[0]['available']
     sym = node['api'].get_balance(symbol)[0]['available']
 
-    buy = to_function(gene=node['buy'], template=template)
-    sell = to_function(gene=node['sell'], template=template)
-
+    buy, _ = to_function(gene=node['buy'], template=template)
+    sell, stoploss = to_function(gene=node['sell'], template=template)
+    
     node['buy_function'] = buy
     node['sell_function'] = sell
     
     buy_signal = eval(buy) & (sym == 0) & (quo > 10)
-    sell_signal = (sym != 0) & (history * 0.95 > data[-1, 4]) | eval(sell)
+    sell_signal = (sym != 0) & (history * stoploss > data[-1, 4]) | eval(sell)
     
     if buy_signal and sell_signal: sell_signal = False
 
@@ -159,7 +159,7 @@ class Incubator():
         api = self.api_class()
         api.set_data(data=self.data)
     
-    def run(self):
+    def run(self, annotation=''):
         row_length = len(self.data[-1]) - 1
         template = f'data[-1, (__number__ % {row_length})+1]'
 
@@ -180,7 +180,7 @@ class Incubator():
             
             for thread in threads: thread.join()
                 
-            if LOG: print(f'{provider.to_date(api.get_data()[-1, 0]):19s}', end='\r')
+            print(f'\r{provider.to_date(api.get_data()[-1, 0]):19s} {annotation} ', end='')
         
         # penalize passives
         for node in self.population:
@@ -188,34 +188,18 @@ class Incubator():
 
         # select absolute best, to report and return
         best = select_simple(self.population, 1, 'best')[0]
-        fn = 'C:/Temp/best.txt'
+        fn = 'logs/best.txt'
         if not os.path.exists(fn):
             with open(fn, 'w') as fh: fh.write('perf,buy,sell\n')
         with open(fn, 'a') as fh:
             fh.write(f'{best["perf"]}, {best["buy_function"]}, {best["sell_function"]}\n')
 
-        # remove unhealthy third
-        while len(self.population) > int(self.population_size / 3):
-            self.population.remove(select_simple(self.population, 1, 'worst')[0])  
 
-        # select most healthy third
-        candidates = select(self.population, int(self.population_size / 2) or 1, 'best')
+        candidates = select(self.population, int(self.population_size / 4) or 2, 'best')
+        for n in select_simple(self.population, 4, 'worst'):
+            self.population.remove(n)
 
         while self.population_size > len(self.population):
-            self.population.append({ # Random Node
-                'api': self.api_class(balance={'EUR': self.wallet_start}),
-                'buy': new_gene(self.gene_size),
-                'sell': new_gene(self.gene_size),
-                'perf': 0.0,
-            })
-
-            mother, father = random.sample(candidates, 2)
-            self.population.append({ # Mutated Node
-                'api': self.api_class(balance={'EUR': self.wallet_start}),
-                'buy': father['buy'],
-                'sell': mother['sell'],
-                'perf': 0.0,
-            })
             
             mother, father = random.sample(candidates, 2)
             self.population.append({ # Mutated Node
@@ -225,10 +209,43 @@ class Incubator():
                 'perf': 0.0,
             })
 
+            self.population.append({ # Mutated Node
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
+                'buy': mutate(mother['buy'], self.mutation_rate),
+                'sell': mutate(father['sell'], self.mutation_rate),
+                'perf': 0.0,
+            })
+
+            self.population.append({ # Mutated Node
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
+                'buy': mutate(father['sell'], self.mutation_rate),
+                'sell': mutate(mother['buy'], self.mutation_rate),
+                'perf': 0.0,
+            })
+
+            self.population.append({ # Mutated Node
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
+                'buy': mutate(mother['sell'], self.mutation_rate),
+                'sell': mutate(father['buy'], self.mutation_rate),
+                'perf': 0.0,
+            })
+
+            continue # skip for now            
+            self.population.append({ # Random Node
+                'api': self.api_class(balance={'EUR': self.wallet_start}),
+                'buy': new_gene(self.gene_size),
+                'sell': new_gene(self.gene_size),
+                'perf': 0.0,
+            })
+
         # remove overpopulation
         while len(self.population) > self.population_size:
+            print('WARNING: OVERPOPULATION')
             self.population.remove(select(self.population, 1, 'worst')[0])
         
-        if LOG: print(f'{best["perf"]=}')
+        print(f'{best["perf"]=}')
 
-        return to_function(gene=best['buy'], template=template), to_function(gene=best['sell'], template=template)
+        buy, _ = to_function(gene=best['buy'], template=template)
+        sell, stoploss = to_function(gene=best['sell'], template=template)
+        
+        return buy, sell, stoploss

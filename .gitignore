@@ -4,3 +4,4 @@ data
 go.mod
 go.sum
 *.go
+logs

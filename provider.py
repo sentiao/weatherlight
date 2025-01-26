@@ -142,7 +142,7 @@ class TestClient(RestClient):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = self.instance.current[-1][4] # close
+        price = self.instance.current[-1, 4] # close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -202,11 +202,11 @@ class TestClient(RestClient):
             return n, False
         else:
             n += 1
-            self.instance.current = self.instance.data[n : n + window_size]
+            self.instance.current = self.instance.data[n : n + window_size, :]
             return n, True
 
     def net_worth(self, symbol):
-        return float(self.instance.current[-1][4] * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+        return float(self.instance.current[-1, 4] * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
 
 
 class MultiTestClient(TestClient):

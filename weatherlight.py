@@ -11,9 +11,6 @@ import provider
 import gdl
 
 
-LOG = False
-
-
 with open(sys.argv[1], 'r') as fh:
     settings = json.load(fh)
 
@@ -32,36 +29,27 @@ def save(data, market, interval):
         pickle.dump(data, fh)
 
 
-def apply_indicators(source):
-    data = deepcopy(source)
+def apply_gdl_indicators(data):
+    for indicator in [indicators.ema, indicators.sma, indicators.rsi]:
+        for period in [3, 5, 8, 13, 21, 34, 55, 89, 144]:
+            data = indicator(data, period, 4)
+            data = indicator(data, period, 5)
+    
+    while np.isnan(data[0]).any():
+        data = np.delete(data, 0, axis=0)
+
+    return data
+
+
+def apply_indicators(data):    
     # timestamp     open    high    low     close   volume
     # 0             1       2       3       4       5
     indicator_list = [
-        #(indicators.sma, 5),
-        #(indicators.ema, 5),
-        #(indicators.rsi, 5),
-        
-        # for manual strategy (1h)
-        (indicators.ema, 240),   #6
-        (indicators.ema, 360),   #7
-        (indicators.rsi, 25),     #8
-
-        # for gdl
-        #(indicators.ema, 12),     #9
-        #(indicators.ema, 24),     #10
-        #(indicators.ema, 36),     #11
-
-        #(indicators.ema, 12, 5),   #12
-        #(indicators.ema, 24, 5),   #13
-        #(indicators.ema, 36, 5),   #14
-
-        #(indicators.atr, 12),
-        #(indicators.atr, 24),
-        #(indicators.atr, 36),
-        #(indicators.atr, 12, 5),
-        #(indicators.atr, 24, 5),
-        #(indicators.atr, 36, 5),
+        (indicators.ema, 240),
+        (indicators.ema, 360),
+        (indicators.rsi, 24),
     ]
+
     for indicator in indicator_list:
         func = indicator[0]
         args = indicator[1:]
@@ -73,12 +61,12 @@ def apply_indicators(source):
     return data
 
 
-def strategy(api: provider.RestClient, market: str, indicators: bool): # tuned for 1h
+def strategy(api: provider.RestClient, market: str, interval: str, indicators: bool): # tuned for 1h
     # indicators: tell strat if it still needs to apply indicators itself, or not
     # since the strat grabs data from api itself and the test environment has preloaded indicators for performance reasons, and live data has not
 
     symbol, quote = market.split('-')
-    data = api.get_data(market, '1h', 1440, 1)
+    data = api.get_data(market, interval, 1440, 1)
     if not indicators: data = apply_indicators(data)
     try: quo = float(api.get_balance(quote)[0]['available'])
     except: quo = 0.0
@@ -91,7 +79,7 @@ def strategy(api: provider.RestClient, market: str, indicators: bool): # tuned f
         break
     else:
         history = 0.0
-    
+
     buy_signal = \
         (sym == 0) & (quo > 10) & \
         (data[-1, 8] > 70.0) & \
@@ -104,7 +92,9 @@ def strategy(api: provider.RestClient, market: str, indicators: bool): # tuned f
         (data[-1, 6] > data[-1, 4]) | \
         (sym != 0) & (history * 0.95 > data[-1, 4]) # stoploss
 
-    if buy_signal and sell_signal: sell_signal = False
+    if buy_signal and sell_signal:
+        buy_signal, sell_signal = False, False
+    
     return buy_signal, sell_signal
 
 
@@ -112,7 +102,7 @@ def test_gdl():
 
     # parameters
     market = 'ETH-EUR'
-    interval = '1d'
+    interval = '1h'
     value_start = 0
     wallet_start = 1000
 
@@ -127,16 +117,16 @@ def test_gdl():
     # set up test environment
     api = provider.TestClient()
     api.set_data(data)
-    api.set_balance(balance={'EUR': wallet_start})
+    api.set_balance(balance={'EUR': wallet_start})    
     
     # set up incubator
-    population_size = 64
-    gene_size = 16
+    population_size = 32
+    gene_size = 4
     mutation_rate = 0.02
     
     incubation_period = 20
     reincubation_period = 5
-    window_size = 720
+    window_size = 2880
 
     incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
 
@@ -145,24 +135,19 @@ def test_gdl():
     while step:
         step_counter, step = api.step(step_counter, window_size)
         data = api.get_data()
-        data = apply_indicators(data)
+        data = apply_gdl_indicators(data)
         incubator.set_data(data=data)
-
-        
-
-        if LOG: print(f'from {provider.to_date(data[0, 0]):19s} to {provider.to_date(data[-1, 0]):19s}')
 
         # metrics
         if not value_start:
             value_start = data[-1, 4]
         
         # strat
-        buy, sell = False, False
         while incubation_period:
             incubation_period -= 1
-            buy, sell = incubator.run()
+            buy, sell, stoploss = incubator.run(f'until {provider.to_date(data[-1, 0])} ({incubation_period})')
         incubation_period = reincubation_period # for next run
-
+        
         # get most recent interacted price
         for trade in api.get_trades(market):
             if trade.get('side', '') != 'buy': continue
@@ -176,9 +161,10 @@ def test_gdl():
         sym = float(api.get_balance(symbol=symbol)[0]['available'])
 
         buy_signal = eval(buy) & (sym == 0) & (quo > 10)
-        sell_signal = (sym != 0) & (history * 0.95 > data[-1, 4]) | (sym != 0) & eval(sell)
+        sell_signal = (sym != 0) & (history * stoploss > data[-1, 4]) | (sym != 0) & eval(sell)
 
-        if buy_signal and sell_signal: sell_signal = False
+        if buy_signal and sell_signal:
+            buy_signal, sell_signal = False, False
         
         if buy_signal:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
@@ -207,9 +193,8 @@ def test_gdl():
 
 
 def test():
-    if LOG:
-        with open('c:/temp/out.csv', 'w') as fh:
-            fh.write('date,price,worth\n')
+    with open('logs/out.csv', 'w') as fh:
+        fh.write('date,price,worth\n')
 
     # parameters
     market = 'ETH-EUR'
@@ -246,7 +231,7 @@ def test():
             value_start = data[-1, 4]
         
         # strategy
-        buy, sell = strategy(api, market, True)
+        buy, sell = strategy(api, market, interval, True)
 
         # act
         quo = float(api.get_balance(symbol=quote)[0]['available'])
@@ -260,10 +245,9 @@ def test():
             if buy: print('BUY ', end=' ')
             if sell: print('SELL', end=' ')
             print(f'{provider.to_date(data[-1][0]):19s} {quo:16.2f} EUR  {sym:16.4f} {symbol}  {api.net_worth(symbol):16.4f} EUR worth')
-            
-            if LOG:
-                with open('c:/temp/out.csv', 'a') as fh:
-                    fh.write(f'{provider.to_date(data[-1, 0])},{data[-1][4]},{api.net_worth(symbol)}\n')
+
+            with open('logs/out.csv', 'a') as fh:
+                fh.write(f'{provider.to_date(data[-1, 0])},{data[-1][4]},{api.net_worth(symbol)}\n')
 
     # metrics
     value_end = data[-1, 4]
@@ -320,7 +304,7 @@ def live():
         print(provider.to_date(semaphore))
 
         # strategy
-        buy, sell = strategy(api, market, False)
+        buy, sell = strategy(api, market, interval, False)
 
         # act
         try: quo = float(api.get_balance(symbol=quote)[0]['available'])
@@ -341,9 +325,8 @@ def live():
 
 
 if __name__ == '__main__':
-    if '--log' in sys.argv: LOG = True
     if '--test' in sys.argv: test()
-    if '--test_gdl' in sys.argv: test_gdl()
+    if '--gdl' in sys.argv: test_gdl()
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
         api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
