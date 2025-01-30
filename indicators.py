@@ -12,55 +12,43 @@ def candle(data):
     return ratio
 
 
-def sma(data, period, column=4):
-    _sma = np.empty((len(data), 1,))
-    _sma[:] = np.nan
+def calculate_sma(data, period):
+    result = np.empty((len(data), 1,))
+    result[:] = np.nan
+
     for n in range(len(data)):
         if period > n: continue
-        _sma[n, 0] = data[n-period:n, column].sum() / period
+        result[n, 0] = data[n-period:n].sum() / period
+    
+    return result
+
+
+def calculate_ema(data, period):
+    result = np.empty((len(data), 1,))
+    result[:] = np.nan
+
+    for n in range(len(data)):
+        if data[n] == np.nan: continue
+        if data[n-1] == np.nan: continue
+
+        p = data[n]
+        a = 2 / (1 + period)
+
+        result[n] = (p * a) + (result[n-1] * (1 - a))
+    
+    return result
+
+
+def sma(data, period, column=4):
+    _sma = calculate_sma(data[:, column], period)
     return np.c_[data, _sma]
 
 
 def ema(data, period, column=4):
-    f = 2 / float(1 + period)
-    
-    _sma = np.empty((len(data), 1))
-    _sma[:] = np.nan
-    for n in range(len(data)):
-        if period > n: continue
-        _sma[n, 0] = data[n-period:n, column].sum() / period
+    _sma = calculate_sma(data[:, column], period)
+    _ema = calculate_ema(_sma, period)
+    return np.c_[data, _sma]
 
-    _ema = _sma[:]
-    for n in range(len(data)):
-        if _ema[n] == np.nan: continue
-        if _ema[n-1] == np.nan: continue
-        p = data[n, column]
-        a = 2 / (1 + period)
-
-        _ema[n, 0] = (p * a) + (_ema[n-1] * (1 - a))
-
-    return np.c_[data, _ema]
-
-
-def macd(data, fast, slow, signal):
-    k = data.close.ewm(span=fast, adjust=False, min_periods=fast).mean()
-    d = data.close.ewm(span=slow, adjust=False, min_periods=slow).mean()
-    macd = k - d
-    macd_signal = macd.ewm(span=signal, adjust=False, min_periods=signal).mean()
-    macd_histogram = macd - macd_signal
-    data['MACD'] = macd
-    data['MACD_SIGNAL'] = macd_signal
-    data['MACD_HISTOGRAM'] = macd_histogram
-
-
-def hour(data):
-    d = lambda n: int(n.split(' ')[-1].split(':')[0])
-    data['HOUR'] = data.date.apply(d)
-
-
-def minute(data):
-    d = lambda n: int(n.split(' ')[-1].split(':')[1])
-    data['MINUTE'] = data.date.apply(d)
 
 
 def rsi(data, period, column=4): # this one first
@@ -89,6 +77,55 @@ def rsi(data, period, column=4): # this one first
         _rsi[n, 0] = 100 - (100 / (1 + rs))
 
     return np.c_[data, _rsi]
+
+
+def rsi(data, period, column=4):
+    result = np.empty((len(data), 1,))
+    result[:] = np.nan
+
+    diff_up = np.array([0.0] * len(data))
+    diff_down = np.array([0.0] * len(data))
+    for n in range(len(data)):
+        if n == 0: continue
+        diff = data[n, column] - data[n-1, column]
+        if diff > 0: diff_up[n] = abs(diff)
+        if 0 > diff: diff_down[n] = abs(diff)
+    
+    for n in range(len(data)):
+        if period > n: continue
+        mean_up = diff_up[n-period:n].mean()
+        mean_down = diff_down[n-period:n].mean()
+
+        if mean_down == 0.0:
+            rs = mean_up
+        else:
+            rs = mean_up / mean_down
+        
+        result[n] = 100 - (100 / (1 + rs))
+    
+    return np.c_[data, result]
+
+
+def macd(data, fast, slow, signal):
+    k = data.close.ewm(span=fast, adjust=False, min_periods=fast).mean()
+    d = data.close.ewm(span=slow, adjust=False, min_periods=slow).mean()
+    macd = k - d
+    macd_signal = macd.ewm(span=signal, adjust=False, min_periods=signal).mean()
+    macd_histogram = macd - macd_signal
+    data['MACD'] = macd
+    data['MACD_SIGNAL'] = macd_signal
+    data['MACD_HISTOGRAM'] = macd_histogram
+
+
+def hour(data):
+    d = lambda n: int(n.split(' ')[-1].split(':')[0])
+    data['HOUR'] = data.date.apply(d)
+
+
+def minute(data):
+    d = lambda n: int(n.split(' ')[-1].split(':')[1])
+    data['MINUTE'] = data.date.apply(d)
+
 
 
 def atr(data, period, name='', column='close'): # this one

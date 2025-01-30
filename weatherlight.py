@@ -113,20 +113,20 @@ def test_gdl():
         api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
         data = api.get_data(market=market, interval=interval, number=-1)
         save(data, market, interval)
-
+    
     # set up test environment
     api = provider.TestClient()
     api.set_data(data)
     api.set_balance(balance={'EUR': wallet_start})    
     
     # set up incubator
-    population_size = 32
+    population_size = 64
     gene_size = 4
     mutation_rate = 0.02
     
     incubation_period = 20
-    reincubation_period = 5
-    window_size = 2880
+    reincubation_period = 3
+    window_size = 1440
 
     incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
 

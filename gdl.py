@@ -196,7 +196,7 @@ class Incubator():
 
 
         candidates = select(self.population, int(self.population_size / 4) or 2, 'best')
-        for n in select_simple(self.population, 4, 'worst'):
+        for n in select_simple(self.population,  int(self.population_size / 4) or 1, 'worst'):
             self.population.remove(n)
 
         while self.population_size > len(self.population):
@@ -208,6 +208,7 @@ class Incubator():
                 'sell': mutate(mother['sell'], self.mutation_rate),
                 'perf': 0.0,
             })
+            if len(self.population) == self.population_size: continue
 
             self.population.append({ # Mutated Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
@@ -215,6 +216,7 @@ class Incubator():
                 'sell': mutate(father['sell'], self.mutation_rate),
                 'perf': 0.0,
             })
+            if len(self.population) == self.population_size: continue
 
             self.population.append({ # Mutated Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
@@ -222,6 +224,7 @@ class Incubator():
                 'sell': mutate(mother['buy'], self.mutation_rate),
                 'perf': 0.0,
             })
+            if len(self.population) == self.population_size: continue
 
             self.population.append({ # Mutated Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
@@ -229,14 +232,15 @@ class Incubator():
                 'sell': mutate(father['buy'], self.mutation_rate),
                 'perf': 0.0,
             })
-
-            continue # skip for now            
+            if len(self.population) == self.population_size: continue
+        
             self.population.append({ # Random Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
                 'buy': new_gene(self.gene_size),
                 'sell': new_gene(self.gene_size),
                 'perf': 0.0,
             })
+            if len(self.population) == self.population_size: continue
 
         # remove overpopulation
         while len(self.population) > self.population_size:
