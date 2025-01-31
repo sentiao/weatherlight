@@ -129,20 +129,18 @@ class RestClient:
 
 
 class TestClient(RestClient):
-    data = None
-    current = None
-    n = -1
-
-    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000):
+    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, balance = {}):
         super().__init__(api_key, api_secret, access_window)
-        self.instance = self
+        self.balance = balance
         self.trades = []
+        self.data = None
+        self.current = None
 
     def place_order(self, market: str, side: str, order_type: str, amount: float | None = None, amountQuote: float | None = None):
         now = str(int(time.time() * 1000))
 
         symbol, quote = market.split('-')
-        price = self.instance.current[-1, 4] # close
+        price = self.current[-1, 4] # close
 
         if side == 'buy':
             fee = amountQuote * 0.0025
@@ -189,29 +187,21 @@ class TestClient(RestClient):
             return balances
 
     def get_data(self, *args, **kwargs):
-        return self.instance.current
+        return self.current
 
     def set_data(self, data = None):
-        self.instance.data = data
+        self.data = data
     
     def set_balance(self, balance = {}):
         self.balance = balance
 
-    def step(self, n, window_size):
-        if (n + window_size) >= len(self.instance.data):
-            return n, False
+    def step(self, counter, window_size):
+        if (counter + window_size) >= len(self.data):
+            return counter, False
         else:
-            n += 1
-            self.instance.current = self.instance.data[n : n + window_size, :]
-            return n, True
+            counter += 1
+            self.current = self.data[counter : counter + window_size, :]
+            return counter, True
 
     def net_worth(self, symbol):
-        return float(self.instance.current[-1, 4] * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
-
-
-class MultiTestClient(TestClient):
-
-    def __init__(self, api_key: str = '', api_secret: str = '', access_window: int = 10000, balance = {}):
-        super().__init__(api_key, api_secret, access_window)
-        self.instance = MultiTestClient
-        if balance: self.balance = balance
+        return float(self.current[-1, 4] * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
