@@ -199,8 +199,8 @@ def test_gdl():
 def incubator():
 
     # parameters
-    market = 'ETH-EUR'
-    interval = '1h'
+    market = 'ADA-EUR'
+    interval = '6h'
     value_start = 0
     wallet_start = 1000
 
@@ -218,13 +218,13 @@ def incubator():
     api.set_data(data=data)
     
     # set up incubator
-    population_size = 32
-    gene_size = 4
+    population_size = 64
+    gene_size = 8
     mutation_rate = 0.02
     
     incubation_period = 20
     reincubation_period = 5
-    window_size = 8640
+    window_size = 1440
 
     incubator = algo.Incubator(api_class=provider.TestClient, market=market, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
 

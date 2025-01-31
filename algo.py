@@ -168,26 +168,25 @@ class Incubator():
 
     
     def run(self, data):
-        row_length = len(data[-1]) - 1
+        
+        # reset
         for node in self.population:
             node['api'].set_data(data=data)
-        
-        template = f'data[-1, (__number__ % {row_length})+1]'
-
-        for node in self.population:
             node['api'].set_balance({'EUR': self.wallet_start})
+        
+        row_length = len(data[-1]) - 1
+        template = f'data[-1, (__number__ % {row_length})+1]'
         
         print(f'{provider.to_date(data[0, 0])} --> {provider.to_date(data[-1, 0])}')
         
+        # threads
         print(f'[{' ' * len(self.population)}]\r[', end='')
-
         threads = []
         for node in self.population:
             thread = Thread(target=run_node, args=(node, self.market, template,))
             threads.append(thread)
             thread.start()
         for thread in threads: thread.join()
-
         print()
 
         # penalize passives
@@ -208,8 +207,8 @@ class Incubator():
             self.population.remove(n)
 
         while self.population_size > len(self.population):
-            
             mother, father = random.sample(candidates, 2)
+            
             self.population.append({ # Mutated Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
                 'buy': mutate(father['buy'], self.mutation_rate),
