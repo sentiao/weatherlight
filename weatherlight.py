@@ -101,106 +101,12 @@ def strategy(api: provider.RestClient, market: str, interval: str, indicators: b
     return buy_signal, sell_signal
 
 
-def test_gdl():
-
-    # parameters
-    market = 'ETH-EUR'
-    interval = '1h'
-    value_start = 0
-    wallet_start = 1000
-
-    # prepare data, based on saved data, or refresh and save
-    symbol, quote = market.split('-')
-    data = load(market, interval)
-    if not len(data):
-        api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
-        data = api.get_data(market=market, interval=interval, number=-1)
-        save(data, market, interval)
-    
-    # set up test environment
-    api = provider.TestClient()
-    api.set_data(data)
-    api.set_balance(balance={'EUR': wallet_start})    
-    
-    # set up incubator
-    population_size = 64
-    gene_size = 4
-    mutation_rate = 0.02
-    
-    incubation_period = 20
-    reincubation_period = 3
-    window_size = 1440
-
-    incubator = gdl.Incubator(api_class=provider.MultiTestClient, market=market, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
-
-    # step through test data
-    step_counter, step = -1, True
-    while step:
-        step_counter, step = api.step(step_counter, window_size)
-        data = api.get_data()
-        data = apply_gdl_indicators(data)
-        incubator.set_data(data=data)
-
-        # metrics
-        if not value_start:
-            value_start = data[-1, 4]
-        
-        # strat
-        while incubation_period:
-            incubation_period -= 1
-            buy, sell, stoploss = incubator.run(f'until {provider.to_date(data[-1, 0])} ({incubation_period})')
-        incubation_period = reincubation_period # for next run
-        
-        # get most recent interacted price
-        for trade in api.get_trades(market):
-            if trade.get('side', '') != 'buy': continue
-            history = trade.get('price', 0.0)
-            break
-        else:
-            history = 0.0
-
-        # act
-        quo = float(api.get_balance(symbol=quote)[0]['available'])
-        sym = float(api.get_balance(symbol=symbol)[0]['available'])
-
-        buy_signal = eval(buy) & (sym == 0) & (quo > 10)
-        sell_signal = (sym != 0) & (history * stoploss > data[-1, 4]) | (sym != 0) & eval(sell)
-
-        if buy_signal and sell_signal:
-            buy_signal, sell_signal = False, False
-        
-        if buy_signal:
-            result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
-            print('BUY  ', end='')
-        if sell_signal:
-            result = api.place_order(market=market, side='sell', order_type='market', amount=sym)
-            print('SELL ', end='')
-        
-        if buy_signal or sell_signal:
-            print(f'{provider.to_date(data[-1, 0]):19s}  EUR={quo:016.2f}  {symbol}={sym:016.4f}  WORTH={api.net_worth(symbol):16.4f}')
-
-    # metrics
-    value_end = data[-1, 4]
-    market_performance = ((value_end/value_start)-1)*100
-    wallet_end = api.net_worth(symbol)
-    algo_performance = ((wallet_end/wallet_start)-1)*100
-
-    print(f'Value start:        {value_start:.2f} EUR')
-    print(f'Value end:          {value_end:.2f} EUR')
-    print(f'Market performance: {market_performance:.2f}%')
-    print()
-    print(f'Wallet start:       {wallet_start:.2f} EUR')
-    print(f'Wallet end:         {wallet_end:.2f} EUR')
-    print(f'Algo performance:   {algo_performance:.2f}%')
-
-
-
 
 def incubator():
 
     # parameters
-    market = 'ADA-EUR'
-    interval = '6h'
+    market = 'ETH-EUR'
+    interval = '1d'
     value_start = 0
     wallet_start = 1000
 
@@ -214,19 +120,20 @@ def incubator():
     
     # set up test environment
     api = provider.TestClient()
-    api.set_balance(balance={'EUR': wallet_start})    
+    api.set_balance(balance={'EUR': wallet_start})
     api.set_data(data=data)
     
     # set up incubator
-    population_size = 64
+    population_size = 32
     gene_size = 8
     mutation_rate = 0.02
     
-    incubation_period = 20
+    incubation_period = 5
     reincubation_period = 5
     window_size = 1440
 
-    incubator = algo.Incubator(api_class=provider.TestClient, market=market, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
+    incubator = algo.Incubator(api_class=provider.TestClient, market=market, interval=interval, window_size=window_size, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
+    actor = None
 
     # step through test data
     counter, alive = -1, True
@@ -234,7 +141,10 @@ def incubator():
         counter, alive = api.step(counter, window_size)
         data = api.get_data()
         data = apply_gdl_indicators(data)
-        incubator.set_data(data=data)
+
+        # template
+        row_length = len(data[-1]) - 1
+        template = f'data[-1, (__number__ % {row_length})+1]'
 
         # metrics
         if not value_start:
@@ -243,8 +153,10 @@ def incubator():
         # strat
         while incubation_period:
             incubation_period -= 1
-            buy, sell, stoploss = incubator.run(data)
+            buy, sell, stoploss = incubator.run(data, template)
         incubation_period = reincubation_period # for next run
+
+        print(f'--> {provider.to_date(data[-1, 0])}')
         
         # get most recent interacted price
         for trade in api.get_trades(market):

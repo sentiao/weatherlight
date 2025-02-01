@@ -10,7 +10,8 @@ import numpy as np
 API_LIMIT_MINIMUM = 100
 
 
-def to_date(timestamp): return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
+def to_date(timestamp):
+    return datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
 
 
 class RestClient:
@@ -205,3 +206,6 @@ class TestClient(RestClient):
 
     def net_worth(self, symbol):
         return float(self.current[-1, 4] * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])
+
+    def training_worth(self, symbol):
+        return float(self.current[-1, 4] * 0.5 * float(self.get_balance(symbol=symbol)[0]['available'])) + float(self.get_balance(symbol='EUR')[0]['available'])

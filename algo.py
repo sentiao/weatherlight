@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import provider
+import pickle
 from threading import Thread
 
 
@@ -92,6 +93,7 @@ def select_simple(population, number, mode):
     if mode == 'worst':
         return sorted(population, key=lambda n: n['perf'])[0:number]
 
+
 def select(population, number, mode):
     if mode == 'best':
         probabilities = [p['perf'] / len(population) for p in population]
@@ -100,6 +102,14 @@ def select(population, number, mode):
     candidates = [random.choices(population, probabilities)[0] for _ in range(number)]
 
     return candidates
+
+
+def score(node, symbol, quote):
+    api = node['api']
+    return \
+        ( float(api.current[-1, 4] * 0.50 * float(api.get_balance(symbol=symbol)[0]['available'])) ) \
+        + \
+        ( float(api.get_balance(symbol=quote)[0]['available']) * 0.50 )
 
 
 def run_node(node, market, template):
@@ -122,9 +132,6 @@ def run_node(node, market, template):
         buy, _ = to_function(gene=node['buy'], template=template)
         sell, stoploss = to_function(gene=node['sell'], template=template)
         
-        node['buy_function'] = buy
-        node['sell_function'] = sell
-        
         buy_signal = eval(buy) & (sym == 0) & (quo > 10)
         sell_signal = (sym != 0) & (history * stoploss > data[-1, 4]) | eval(sell)
         
@@ -138,44 +145,63 @@ def run_node(node, market, template):
         if sell_signal:
             result = node['api'].place_order(market=market, side='sell', order_type='market', amount=sym)
         
-        node['perf'] = node['api'].net_worth(symbol)
+        node['perf'] = score(node, symbol, quote)
     
     sys.stdout.write('-')
     sys.stdout.flush()
 
 
+def load(path):
+    data = []
+    if os.path.exists(path):
+        with open(path, 'rb') as fh:
+            data = pickle.load(fh)
+    return data
+
+
+def save(path, data):
+    with open(path, 'wb') as fh:
+        pickle.dump(data, fh)
+
+
 class Incubator():
-    def __init__(self, api_class, market: str, population_size : int, gene_size : int, mutation_rate : int):
+    def __init__(self, api_class, market: str, interval: str, window_size: int, population_size: int, gene_size: int, mutation_rate: int):
         self.api_class = api_class
         self.market = market
+        self.interval = interval
+        self.window_size = window_size
         self.population_size = population_size
         self.gene_size = gene_size
         self.mutation_rate = mutation_rate
         self.wallet_start = 1000.0
-        self.data = None
 
-        self.population = []
-        for _ in range(self.population_size):
-            self.population.append({
-                'api': self.api_class(balance={'EUR': 1000.0}),
-                'buy': new_gene(self.gene_size),
-                'sell': new_gene(self.gene_size),
-                'perf': 0.0,
-            })
+        self.path = f'data/gene-{market}_{interval}_w{window_size}_p{population_size}_g{gene_size}.dat'
+        self.population = load(self.path)
+        if self.population == []:
+            print(f'Spawning new population: {market=}, {interval=}, {window_size=}, {population_size=}, {gene_size=}')
+            for _ in range(self.population_size):
+                self.population.append({
+                    'api': self.api_class(balance={'EUR': 1000.0}),
+                    'buy': new_gene(self.gene_size),
+                    'sell': new_gene(self.gene_size),
+                    'perf': 0.0,
+                })
+            save(self.path, self.population)
 
-    def set_data(self, data):
-        self.data = data
-
+    def select_best(self):
+        return select_simple(self.population, 1, 'best')[0]
     
-    def run(self, data):
-        
+    def function_best(self, template):
+        best = self.select_best()
+        buy, _ = to_function(gene=best['buy'], template=template)
+        sell, stoploss = to_function(gene=best['sell'], template=template)
+        return buy, sell, stoploss
+    
+    def run(self, data, template):
         # reset
         for node in self.population:
             node['api'].set_data(data=data)
             node['api'].set_balance({'EUR': self.wallet_start})
-        
-        row_length = len(data[-1]) - 1
-        template = f'data[-1, (__number__ % {row_length})+1]'
         
         print(f'{provider.to_date(data[0, 0])} --> {provider.to_date(data[-1, 0])}')
         
@@ -189,19 +215,12 @@ class Incubator():
         for thread in threads: thread.join()
         print()
 
+
         # penalize passives
         for node in self.population:
             if node['perf'] == self.wallet_start: node['perf'] = self.wallet_start / 2
 
-        # select absolute best, to report and return
-        best = select_simple(self.population, 1, 'best')[0]
-        fn = 'logs/best.txt'
-        if not os.path.exists(fn):
-            with open(fn, 'w') as fh: fh.write('perf,buy,sell\n')
-        with open(fn, 'a') as fh:
-            fh.write(f'{best["perf"]}, {best["buy_function"]}, {best["sell_function"]}\n')
-
-
+        # select best and worst
         candidates = select(self.population, int(self.population_size / 4) or 2, 'best')
         for n in select_simple(self.population,  int(self.population_size / 4) or 1, 'worst'):
             self.population.remove(n)
@@ -240,7 +259,7 @@ class Incubator():
                 'perf': 0.0,
             })
             if len(self.population) == self.population_size: continue
-        
+
             self.population.append({ # Random Node
                 'api': self.api_class(balance={'EUR': self.wallet_start}),
                 'buy': new_gene(self.gene_size),
@@ -254,9 +273,9 @@ class Incubator():
             print('WARNING: OVERPOPULATION')
             self.population.remove(select(self.population, 1, 'worst')[0])
         
+        save(self.path, self.population)
+        
+        best = self.select_best()
         print(f'{best["perf"]=}')
 
-        buy, _ = to_function(gene=best['buy'], template=template)
-        sell, stoploss = to_function(gene=best['sell'], template=template)
-        
-        return buy, sell, stoploss
+        return self.function_best(template)
