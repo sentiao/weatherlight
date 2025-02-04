@@ -107,9 +107,9 @@ def select(population, number, mode):
 def score(node, symbol, quote):
     api = node['api']
     return \
-        ( float(api.current[-1, 4] * 0.50 * float(api.get_balance(symbol=symbol)[0]['available'])) ) \
+        ( float(api.current[-1, 4] * 0.25 * float(api.get_balance(symbol=symbol)[0]['available'])) ) \
         + \
-        ( float(api.get_balance(symbol=quote)[0]['available']) * 0.50 )
+        ( float(api.get_balance(symbol=quote)[0]['available']) * 0.75 )
 
 
 def run_node(node, market, template):
@@ -165,9 +165,10 @@ def save(path, data):
 
 
 class Incubator():
-    def __init__(self, api_class, market: str, interval: str, window_size: int, population_size: int, gene_size: int, mutation_rate: int):
+    def __init__(self, api_class, markets: str, interval: str, window_size: int, population_size: int, gene_size: int, mutation_rate: int):
         self.api_class = api_class
-        self.market = market
+        self.markets = markets
+        self.market = markets[0]
         self.interval = interval
         self.window_size = window_size
         self.population_size = population_size
@@ -175,10 +176,10 @@ class Incubator():
         self.mutation_rate = mutation_rate
         self.wallet_start = 1000.0
 
-        self.path = f'data/gene-{market}_{interval}_w{window_size}_p{population_size}_g{gene_size}.dat'
+        self.path = f'data/gene-{self.market}_{interval}_w{window_size}_p{population_size}_g{gene_size}.dat'
         self.population = load(self.path)
         if self.population == []:
-            print(f'Spawning new population: {market=}, {interval=}, {window_size=}, {population_size=}, {gene_size=}')
+            print(f'Spawning new population: {self.market=}, {interval=}, {window_size=}, {population_size=}, {gene_size=}')
             for _ in range(self.population_size):
                 self.population.append({
                     'api': self.api_class(balance={'EUR': 1000.0}),
@@ -205,6 +206,10 @@ class Incubator():
         
         print(f'{provider.to_date(data[0, 0])} --> {provider.to_date(data[-1, 0])}')
         
+        # exit
+        with open('lock', 'r') as lock:
+            if lock.read(): sys.exit()
+
         # threads
         print(f'[{' ' * len(self.population)}]\r[', end='')
         threads = []
@@ -215,6 +220,9 @@ class Incubator():
         for thread in threads: thread.join()
         print()
 
+        # exit
+        with open('lock', 'r') as lock:
+            if lock.read(): sys.exit()
 
         # penalize passives
         for node in self.population:

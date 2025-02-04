@@ -32,15 +32,17 @@ def save(data, market, interval):
         pickle.dump(data, fh)
 
 
-def apply_gdl_indicators(data):
+def algo_indicators(data):
+    n = data.shape[1]
     for indicator in [indicators.ema, indicators.sma, indicators.rsi]:
         for period in [3, 5, 8, 13, 21, 34, 55, 89, 144]:
-            data = indicator(data, period, 4)
-            data = indicator(data, period, 5)
+            for c in range(1, n):
+                data = indicator(data, period, c)
     
-    while np.isnan(data[0]).any():
+    while True and data.size:
+        if not np.isnan(data[0]).any(): break
         data = np.delete(data, 0, axis=0)
-
+    
     return data
 
 
@@ -58,7 +60,8 @@ def apply_indicators(data):
         args = indicator[1:]
         data = func(data, *args)
     
-    while np.isnan(data[0]).any():
+    while True and data.size:
+        if not np.isnan(data[0]).any(): break
         data = np.delete(data, 0, axis=0)
 
     return data
@@ -104,18 +107,31 @@ def strategy(api: provider.RestClient, market: str, interval: str, indicators: b
 
 def incubator():
 
+    package1 = (['ETH-EUR', 'BTC-EUR'], '1d', 32, 32, 720)
+    package2 = (['ETH-EUR', 'BTC-EUR'], '1d', 32, 32, 1440)
+
+
     # parameters
-    market = 'ETH-EUR'
-    interval = '1d'
     value_start = 0
     wallet_start = 1000
 
+    '''
+    markets = ['ETH-EUR', 'BTC-EUR']
+    interval = '6h'
+    population_size = 32
+    gene_size = 32
+    window_size = 1440
+    '''
+
+    markets, interval, population_size, gene_size, window_size = package1
+
     # prepare data, based on saved data, or refresh and save
+    market = markets[0]
     symbol, quote = market.split('-')
     data = load(market, interval)
     if not len(data):
         api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
-        data = api.get_data(market=market, interval=interval, number=-1)
+        data = api.get_data(markets=markets, interval=interval, number=-1)
         save(data, market, interval)
     
     # set up test environment
@@ -124,23 +140,24 @@ def incubator():
     api.set_data(data=data)
     
     # set up incubator
-    population_size = 32
-    gene_size = 8
     mutation_rate = 0.02
-    
-    incubation_period = 5
-    reincubation_period = 5
-    window_size = 1440
+    incubation_period = 100
+    reincubation_period = 20
 
-    incubator = algo.Incubator(api_class=provider.TestClient, market=market, interval=interval, window_size=window_size, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
+    incubator = algo.Incubator(api_class=provider.TestClient, markets=markets, interval=interval, window_size=window_size, population_size=population_size, gene_size=gene_size, mutation_rate=mutation_rate)
     actor = None
 
     # step through test data
     counter, alive = -1, True
     while alive:
+
+        # exit
+        with open('lock', 'r') as lock:
+            if lock.read(): sys.exit()
+
         counter, alive = api.step(counter, window_size)
         data = api.get_data()
-        data = apply_gdl_indicators(data)
+        data = algo_indicators(data)
 
         # template
         row_length = len(data[-1]) - 1
@@ -156,7 +173,7 @@ def incubator():
             buy, sell, stoploss = incubator.run(data, template)
         incubation_period = reincubation_period # for next run
 
-        print(f'--> {provider.to_date(data[-1, 0])}')
+        print(f'\n    << {provider.to_date(data[-1, 0])} || {api.net_worth(symbol)} >>>\n')
         
         # get most recent interacted price
         for trade in api.get_trades(market):
@@ -178,13 +195,19 @@ def incubator():
         
         if buy_signal:
             result = api.place_order(market=market, side='buy', order_type='market', amountQuote=quo)
-            print('BUY  ', end='')
+            msg = 'BUY  '
+            print(msg, end='')
+            with open('logs/log.txt', 'a') as log: log.write(msg)
         if sell_signal:
             result = api.place_order(market=market, side='sell', order_type='market', amount=sym)
-            print('SELL ', end='')
+            msg = 'SELL '
+            print(msg, end='')
+            with open('logs/log.txt', 'a') as log: log.write(msg)
         
         if buy_signal or sell_signal:
-            print(f'{provider.to_date(data[-1, 0]):19s}  EUR={quo:016.2f}  {symbol}={sym:016.4f}  WORTH={api.net_worth(symbol):16.4f}')
+            msg = f'{provider.to_date(data[-1, 0]):19s}  EUR={quo:016.2f}  {symbol}={sym:016.4f}  WORTH={api.net_worth(symbol):16.4f}\n'
+            print(msg, end='')
+            with open('logs/log.txt', 'a') as log: log.write(msg)
 
     # metrics
     value_end = data[-1, 4]
@@ -342,11 +365,8 @@ if __name__ == '__main__':
     if '--gdl' in sys.argv: test_gdl()
     if '--status' in sys.argv: status()
     if '--dev' in sys.argv:
-        api = provider.RestClient(api_key=settings['key'], api_secret=settings['secret'])
-        market = 'ETH-EUR'
-        interval = '1h'
-        data1 = api.get_data(market=market, interval=interval, number=1)
-        data2 = api.get_data(market=market, interval=interval, number=2)
-        data3 = api.get_data(market=market, interval=interval, number=3)
+        fns = [os.path.join('data', fn) for fn in os.listdir('data')]
+        for i, fn in enumerate(fns): print(f'{i:2d} {fn}')
+        with open(fns[int(input())], 'rb') as fh: population = pickle.load(fh)
         breakpoint()
     if '--live' in sys.argv: live()

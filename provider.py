@@ -50,7 +50,38 @@ class RestClient:
         else:
             return self.__request(endpoint=f'/balance', method='GET')
 
-    def get_data(self, market, interval, amount=1440, number=1):
+    def get_data(self, markets, interval, amount=1440, number=1):
+        main_market = markets[0]
+        data = None
+        for market in markets:
+            new_data = self.get_market(market, interval, amount, number)
+            if market == main_market:
+                data = new_data.copy()
+                continue
+
+            n = new_data.shape[1] - 1
+            col = np.empty((len(data), n,))
+            col[:] = np.nan
+            data = np.c_[data, col]            
+
+            for date in data[:, 0]:
+                match = data[:, 0] == date
+                match_new = new_data[:, 0] == date
+
+                match = np.where(match)[0]
+                match_new = np.where(match_new)[0]
+
+                if not len(match): continue # this should never happen
+                if not len(match_new): continue # not found
+                
+                r = match[0]
+                r_new = match_new[0]
+
+                data[r, 0-n:] = new_data[r_new, 1:]
+        
+        return data[:-1]
+
+    def get_market(self, market, interval, amount=1440, number=1):
         if number == -1: number = 999999
         h_start, h_end = 0, 0
         
