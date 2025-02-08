@@ -313,7 +313,6 @@ def status(market : str = 'ETH-EUR'):
     print(f'{trades=}')
 
 
-
 def live():
     # parameters
     market = 'ETH-EUR'
